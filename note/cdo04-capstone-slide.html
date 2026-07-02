@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html class="slides" lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CDO-04 — SLO Early-Warning Control Plane</title>
+<meta name="description" content="Capstone presentation: SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow — TF4 CDO-04, July 2026">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ===== TOKENS ===== */
+:root{
+  --bg-deep:#070B16;--bg-primary:#0B1120;--bg-secondary:#111827;
+  --surface-page:#0B1120;--surface-card:#1E293B;--surface-card-hover:#334155;
+  --accent:#F59E0B;--accent-rgb:245,158,11;--accent-tint:rgba(245,158,11,.10);
+  --accent-soft:rgba(245,158,11,.18);--accent-dark:#B45309;
+  --accent-gradient:linear-gradient(135deg,#F59E0B 0%,#F97316 50%,#EF4444 100%);
+  --accent-gradient-text:linear-gradient(135deg,#FBBF24,#F97316,#FB923C);
+  --green:#10B981;--green-tint:rgba(16,185,129,.12);
+  --red:#EF4444;--red-tint:rgba(239,68,68,.12);
+  --blue:#3B82F6;--blue-tint:rgba(59,130,246,.12);
+  --text-primary:#F1F5F9;--text-secondary:#94A3B8;--text-muted:#64748B;
+  --border:#1E293B;--border-accent:rgba(245,158,11,.25);
+  --font-sans:'Inter',system-ui,-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono','Fira Code',monospace;
+  --space-xs:.25rem;--space-sm:.5rem;--space-md:1rem;--space-lg:1.5rem;
+  --space-xl:2rem;--space-2xl:3rem;--space-3xl:4rem;--space-4xl:6rem;
+  --radius-sm:6px;--radius-md:10px;--radius-lg:16px;--radius-xl:24px;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.4);--shadow-md:0 4px 16px rgba(0,0,0,.45);
+  --shadow-lg:0 8px 40px rgba(0,0,0,.55);--shadow-glow:0 0 30px rgba(245,158,11,.12);
+  --dur-fast:200ms;--dur-normal:500ms;--dur-slow:900ms;
+  --ease:cubic-bezier(.16,1,.3,1);--ease-bounce:cubic-bezier(.34,1.56,.64,1);
+  --slide-pad:clamp(2rem,5vw,5rem);
+}
+
+/* ===== RESET ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:clamp(14px,1.1vw,18px);scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+body{font-family:var(--font-sans);color:var(--text-primary);background:var(--bg-deep);overflow:hidden;line-height:1.6}
+img{max-width:100%;display:block}
+a{color:var(--accent);text-decoration:none}
+
+/* ===== SLIDE SYSTEM ===== */
+.slide{position:fixed;inset:0;width:100vw;height:100vh;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;padding:var(--slide-pad);
+  background:var(--bg-primary);opacity:0;pointer-events:none;z-index:0;
+  transition:opacity var(--dur-normal) var(--ease)}
+.slide.active{opacity:1;pointer-events:auto;z-index:1}
+.slide::before{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 80% 60% at 50% -20%,rgba(245,158,11,.04),transparent 70%);pointer-events:none;z-index:0}
+.slide>*{position:relative;z-index:1}
+
+/* ===== TITLE SLIDE ===== */
+.slide-title{background:var(--bg-deep);text-align:center;
+  background-image:radial-gradient(ellipse 100% 80% at 50% 0%,rgba(245,158,11,.06),transparent 60%),
+  radial-gradient(ellipse 60% 50% at 80% 100%,rgba(249,115,22,.04),transparent)}
+.title-wrap{max-width:900px;display:flex;flex-direction:column;align-items:center;gap:var(--space-lg)}
+.title-wrap h1{font-size:clamp(2rem,4.5vw,3.8rem);font-weight:800;line-height:1.15;letter-spacing:-.03em}
+.gradient-text{background:var(--accent-gradient-text);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;background-clip:text}
+.lead{font-size:clamp(1rem,1.6vw,1.35rem);color:var(--text-secondary);font-weight:400;line-height:1.55;max-width:700px}
+.eyebrow{display:inline-flex;align-items:center;gap:.5rem;font-size:.75rem;font-weight:600;
+  text-transform:uppercase;letter-spacing:.12em;color:var(--accent)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;
+  box-shadow:0 0 8px rgba(245,158,11,.5)}
+.meta-row{display:flex;gap:.75rem;flex-wrap:wrap;justify-content:center}
+.meta-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .85rem;
+  border-radius:100px;font-size:.72rem;font-weight:600;letter-spacing:.04em;
+  background:var(--surface-card);border:1px solid var(--border);color:var(--text-secondary)}
+.meta-chip.primary{background:var(--accent-tint);border-color:var(--border-accent);color:var(--accent)}
+
+/* ===== DIVIDER SLIDE ===== */
+.slide-divider{text-align:center;background:var(--bg-deep);
+  background-image:radial-gradient(ellipse 60% 50% at 50% 50%,rgba(245,158,11,.04),transparent)}
+.slide-divider .section-num{font-size:clamp(4rem,10vw,8rem);font-weight:900;
+  background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;line-height:1;opacity:.35;margin-bottom:var(--space-md)}
+.slide-divider h2{font-size:clamp(1.8rem,3.5vw,3rem);font-weight:700;letter-spacing:-.02em;margin-bottom:var(--space-md)}
+.slide-divider .lead{margin:0 auto}
+
+/* ===== CONTENT SLIDE ===== */
+.slide-content{width:100%;max-width:1200px;display:flex;flex-direction:column;gap:var(--space-xl)}
+.slide-content-body{gap:var(--space-lg)}
+.slide-header{display:flex;flex-direction:column;gap:var(--space-sm)}
+.slide-header h2{font-size:clamp(1.4rem,2.5vw,2.2rem);font-weight:700;letter-spacing:-.02em}
+.slide-header .lead{font-size:clamp(.85rem,1.2vw,1.05rem)}
+.slide-footer{position:absolute;bottom:var(--space-lg);left:var(--slide-pad);right:var(--slide-pad);
+  display:flex;justify-content:space-between;font-size:.65rem;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.08em}
+
+/* ===== GRID ===== */
+.grid{display:grid;gap:var(--space-md)}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+.grid-4{grid-template-columns:repeat(4,1fr)}
+.grid-auto{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+@media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
+
+/* ===== TWO-COL ===== */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-xl);align-items:stretch}
+@media(max-width:768px){.two-col{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:var(--space-md)}
+.col-label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+  padding:.3rem .7rem;border-radius:100px;display:inline-flex;align-self:flex-start}
+.col-label.col-green{background:var(--green-tint);color:var(--green)}
+.col-label.col-amber{background:var(--accent-tint);color:var(--accent)}
+
+/* ===== CARDS ===== */
+.card{background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:var(--space-lg);display:flex;flex-direction:column;gap:var(--space-sm);
+  transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.card:hover{border-color:var(--border-accent);box-shadow:var(--shadow-glow)}
+.card-icon{width:36px;height:36px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  justify-content:center;font-size:1.1rem;background:var(--accent-tint);color:var(--accent);flex-shrink:0}
+.card-title{font-size:.85rem;font-weight:700;color:var(--text-primary)}
+.card-desc{font-size:.78rem;color:var(--text-secondary);line-height:1.5}
+.card-dark{background:linear-gradient(135deg,rgba(245,158,11,.08),rgba(249,115,22,.04));
+  border:1px solid var(--border-accent);border-radius:var(--radius-md);
+  padding:var(--space-lg);display:flex;flex-direction:column;gap:var(--space-xs)}
+.card-dark .card-title{color:var(--accent);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}
+.card-dark .card-body{font-size:.88rem;color:var(--text-primary);line-height:1.55}
+
+/* ===== TABLE ===== */
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+thead th{text-align:left;padding:.6rem .8rem;font-weight:700;font-size:.7rem;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--accent);
+  border-bottom:2px solid var(--border-accent);background:var(--accent-tint)}
+tbody td{padding:.6rem .8rem;border-bottom:1px solid var(--border);color:var(--text-secondary);vertical-align:top}
+tbody tr:hover td{background:rgba(245,158,11,.03)}
+code,kbd{font-family:var(--font-mono);font-size:.82em;background:rgba(245,158,11,.08);
+  padding:.15em .4em;border-radius:4px;color:var(--accent)}
+
+/* ===== FLOW ===== */
+.flow{display:flex;gap:0;align-items:stretch;flex-wrap:nowrap;overflow-x:auto}
+.flow-step{display:flex;flex-direction:column;gap:var(--space-xs);
+  padding:var(--space-md) var(--space-lg);background:var(--surface-card);
+  border:1px solid var(--border);border-radius:var(--radius-md);min-width:140px;flex:1;
+  position:relative}
+.flow-step+.flow-step{margin-left:calc(var(--space-lg) + 8px)}
+.flow-step+.flow-step::before{content:'→';position:absolute;left:calc(-1 * var(--space-lg) - 4px);
+  top:50%;transform:translateY(-50%);color:var(--accent);font-size:1.1rem;font-weight:700}
+.flow-step .step-num{font-size:.65rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.1em}
+.flow-step .step-title{font-size:.78rem;font-weight:600;color:var(--text-primary)}
+.flow-step .step-desc{font-size:.7rem;color:var(--text-secondary)}
+.flow-vertical{flex-direction:column;gap:var(--space-sm)}
+.flow-vertical .flow-step+.flow-step{margin-left:0;margin-top:var(--space-sm)}
+.flow-vertical .flow-step+.flow-step::before{content:'↓';left:50%;top:calc(-1 * var(--space-sm) - 2px);transform:translateX(-50%)}
+
+/* compact flow */
+.flow-compact{display:flex;flex-wrap:wrap;gap:var(--space-sm);align-items:center}
+.flow-chip{padding:.35rem .75rem;background:var(--surface-card);border:1px solid var(--border);
+  border-radius:var(--radius-sm);font-size:.72rem;font-weight:500;color:var(--text-secondary);
+  white-space:nowrap}
+.flow-chip.accent{background:var(--accent-tint);border-color:var(--border-accent);color:var(--accent);font-weight:600}
+.flow-arrow{color:var(--accent);font-size:.85rem;font-weight:700}
+
+/* ===== STAT GRID ===== */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--space-md)}
+.stat{display:flex;flex-direction:column;gap:var(--space-xs);padding:var(--space-lg);
+  background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);text-align:center}
+.stat .big-num{font-size:clamp(1.6rem,3vw,2.6rem);font-weight:800;color:var(--accent);line-height:1.1}
+.stat .stat-label{font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
+.stat .stat-body{font-size:.75rem;color:var(--text-secondary)}
+
+/* ===== DEF LIST ===== */
+.def-list{display:flex;flex-direction:column;gap:var(--space-sm)}
+.def-item{display:flex;gap:var(--space-md);padding:var(--space-md);
+  background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-sm);align-items:baseline}
+.def-term{font-weight:700;font-size:.82rem;color:var(--accent);min-width:180px;flex-shrink:0;font-family:var(--font-mono)}
+.def-desc{font-size:.8rem;color:var(--text-secondary);line-height:1.5}
+
+/* ===== MEDIA SLOTS ===== */
+.media-contain{display:flex;align-items:center;justify-content:center;
+  background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);
+  overflow:hidden;padding:var(--space-md);min-height:0;flex:1}
+.media-contain img{max-height:58vh;object-fit:contain;width:100%;border-radius:var(--radius-sm)}
+.media-contain.large img{max-height:65vh}
+
+/* ===== BULLET LIST ===== */
+.bullet-list{display:flex;flex-direction:column;gap:var(--space-sm);padding-left:0;list-style:none}
+.bullet-list li{display:flex;gap:var(--space-sm);align-items:baseline;font-size:.82rem;
+  color:var(--text-secondary);line-height:1.5}
+.bullet-list li::before{content:'';width:5px;height:5px;border-radius:50%;
+  background:var(--accent);flex-shrink:0;margin-top:.45em}
+.bullet-list li strong{color:var(--text-primary);font-weight:600}
+
+/* ===== PROGRESS BAR ===== */
+.progress-bar{position:fixed;top:0;left:0;height:3px;background:var(--accent-gradient);
+  z-index:1000;transition:width var(--dur-normal) var(--ease);box-shadow:0 0 12px rgba(245,158,11,.3)}
+.slide-counter{position:fixed;bottom:var(--space-lg);right:var(--space-xl);z-index:1000;
+  font-size:.7rem;font-weight:600;color:var(--text-muted);letter-spacing:.05em;
+  font-variant-numeric:tabular-nums}
+.nav-hint{position:fixed;bottom:var(--space-lg);left:50%;transform:translateX(-50%);z-index:1000;
+  font-size:.6rem;color:var(--text-muted);opacity:.5;letter-spacing:.05em;
+  transition:opacity var(--dur-fast)}
+
+/* ===== ANIMATIONS ===== */
+.reveal{opacity:0;transform:translateY(18px);transition:opacity var(--dur-normal) var(--ease),transform var(--dur-normal) var(--ease)}
+.reveal.in{opacity:1;transform:none}
+.stagger>*{opacity:0;transform:translateY(14px);
+  transition:opacity var(--dur-normal) var(--ease),transform var(--dur-normal) var(--ease)}
+.stagger.in>*{opacity:1;transform:none}
+.stagger.in>*:nth-child(1){transition-delay:0ms}
+.stagger.in>*:nth-child(2){transition-delay:80ms}
+.stagger.in>*:nth-child(3){transition-delay:160ms}
+.stagger.in>*:nth-child(4){transition-delay:240ms}
+.stagger.in>*:nth-child(5){transition-delay:320ms}
+.stagger.in>*:nth-child(6){transition-delay:400ms}
+.stagger.in>*:nth-child(7){transition-delay:480ms}
+.stagger.in>*:nth-child(8){transition-delay:560ms}
+.stagger.in>*:nth-child(9){transition-delay:640ms}
+.stagger.in>*:nth-child(10){transition-delay:720ms}
+
+@keyframes countUp{from{opacity:.4}to{opacity:1}}
+@keyframes fadeScale{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+
+/* ===== CLOSING SLIDE ===== */
+.slide-closing{text-align:center;background:var(--bg-deep);
+  background-image:radial-gradient(ellipse 100% 80% at 50% 100%,rgba(245,158,11,.06),transparent 60%)}
+.closing-wrap{max-width:800px;display:flex;flex-direction:column;align-items:center;gap:var(--space-xl)}
+.closing-badge{display:inline-flex;align-items:center;gap:.6rem;padding:.6rem 1.5rem;
+  background:var(--accent-tint);border:1px solid var(--border-accent);border-radius:100px;
+  font-size:.85rem;font-weight:700;color:var(--accent);letter-spacing:.04em}
+.closing-badge .dot{width:8px;height:8px;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+
+/* ===== REDUCED MOTION ===== */
+@media(prefers-reduced-motion:reduce){
+  .reveal,.stagger>*{opacity:1!important;transform:none!important;transition:none!important}
+  .slide{transition:none!important}
+}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:900px){
+  .flow{flex-direction:column}
+  .flow-step+.flow-step{margin-left:0;margin-top:var(--space-md)}
+  .flow-step+.flow-step::before{content:'↓';left:50%;top:calc(-1 * var(--space-md));transform:translateX(-50%)}
+  .def-item{flex-direction:column;gap:var(--space-xs)}
+  .def-term{min-width:0}
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:600px){
+  .two-col{grid-template-columns:1fr}
+  .stat-grid{grid-template-columns:1fr}
+  .grid-3,.grid-4{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- PROGRESS -->
+<div class="progress-bar" id="progress" style="width:0%"></div>
+<div class="slide-counter" id="counter">1 / 29</div>
+<div class="nav-hint" id="navHint">← →  Space  Swipe</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 1 : TITLE -->
+<!-- ============================================================ -->
+<section class="slide slide-title active" id="s1">
+  <div class="title-wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>CDO-04 · Capstone Presentation</span>
+    <h1 class="reveal">SLO Early-Warning<br><span class="gradient-text">Control Plane</span></h1>
+    <p class="lead reveal">Biến telemetry thành prediction decision có audit, fallback, evidence và cost guard cho 3 dịch vụ tier-1 fintech</p>
+    <div class="meta-row reveal">
+      <span class="meta-chip primary"><span class="dot"></span>TSDB-backed Prediction</span>
+      <span class="meta-chip"><span class="dot"></span>8 sections</span>
+      <span class="meta-chip"><span class="dot"></span>July 2026</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 2 : DIVIDER — Bối Cảnh & Bài Toán -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s2">
+  <div class="slide-content">
+    <div class="section-num reveal">01</div>
+    <h2 class="reveal">Bối Cảnh &amp; Bài Toán</h2>
+    <p class="lead reveal">Fintech tier-1 cần cảnh báo sớm — threshold tĩnh dễ quá nhạy hoặc quá trễ</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3 : 3 Service Tier-1 -->
+<!-- ============================================================ -->
+<section class="slide" id="s3">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>01 · Bối Cảnh</span>
+      <h2>3 Dịch Vụ Tier-1 Demo</h2>
+      <p class="lead">Mỗi service có risk profile riêng, cần prediction chuyên biệt</p>
+    </div>
+    <div class="reveal">
+      <table>
+        <thead><tr><th>Service</th><th>Pattern</th><th>Rủi ro chính</th></tr></thead>
+        <tbody>
+          <tr><td><code>payment-gw</code></td><td>ALB-heavy + RDS-heavy</td><td>Traffic spike, API latency tăng đột biến</td></tr>
+          <tr><td><code>ledger</code></td><td>DB-heavy</td><td>DB connection pool exhaustion</td></tr>
+          <tr><td><code>fraud-detector</code></td><td>Queue-heavy</td><td>SQS backlog, worker timeout</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">Takeaway</div>
+      <div class="card-body">Dashboard không tự đưa ra cảnh báo sớm — SRE không thể nhìn dashboard 24/7. Hệ thống cần tự phát hiện và cảnh báo trước khi user bị ảnh hưởng.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>01 · Bối Cảnh</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4 : Pain Point → Solution Flow -->
+<!-- ============================================================ -->
+<section class="slide" id="s4">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>01 · Bài Toán</span>
+      <h2>Từ Telemetry Đến Prediction Decision</h2>
+    </div>
+    <div class="flow-compact stagger" style="justify-content:center">
+      <span class="flow-chip accent">Thu telemetry</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Lưu vào AMP</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Prediction mỗi 5'</span><span class="flow-arrow">→</span>
+      <span class="flow-chip accent">AI Engine dự đoán</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Fallback nếu lỗi</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Audit DynamoDB</span><span class="flow-arrow">→</span>
+      <span class="flow-chip accent">SNS Alert</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Cost Guard</span>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">Điểm quan trọng</div>
+      <div class="card-body">Mọi prediction decision đều có <strong>audit trail</strong> để truy vết — dù AI hay fallback, SRE luôn biết decision đến từ đâu.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>01 · Bài Toán</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 5 : DIVIDER — Kiến Trúc -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s5">
+  <div class="slide-content">
+    <div class="section-num reveal">02</div>
+    <h2 class="reveal">Kiến Trúc Tổng Thể</h2>
+    <p class="lead reveal">API Gateway → VPC Link → Private Subnet — zero public exposure cho internal services</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6 : Overall Architecture IMAGE -->
+<!-- ============================================================ -->
+<section class="slide" id="s6">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>02 · Kiến Trúc</span>
+      <h2>Kiến Trúc Tổng Thể</h2>
+      <p class="lead">API Gateway HTTP API là public front door duy nhất — ALB internal, ECS Fargate private subnets</p>
+    </div>
+    <div class="media-contain large reveal">
+      <img src="assets/overall-layout-group.png" alt="CDO-04 Overall Architecture — API Gateway, VPC Link, ECS Fargate, AMP, DynamoDB, SQS, SNS, CloudWatch">
+    </div>
+  </div>
+  <div class="slide-footer"><span>02 · Kiến Trúc</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 7 : API Entry IMAGE + Table -->
+<!-- ============================================================ -->
+<section class="slide" id="s7">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>02 · API Entry</span>
+      <h2>API Gateway Entry Point</h2>
+    </div>
+    <div class="two-col">
+      <div class="media-contain reveal">
+        <img src="assets/api-entry-block-2.jpg" alt="API Gateway HTTP API entry block — 3 routes, VPC Link, internal ALB">
+      </div>
+      <div class="col reveal">
+        <table>
+          <thead><tr><th>Route</th><th>Auth</th><th>Backend</th></tr></thead>
+          <tbody>
+            <tr><td><code>GET /health</code></td><td>NONE</td><td>Telemetry API</td></tr>
+            <tr><td><code>POST /v1/ingest</code></td><td>AWS_IAM/SigV4 + tenant token</td><td>Telemetry API</td></tr>
+            <tr><td><code>POST /v1/predict</code></td><td>AWS_IAM/SigV4</td><td>AI Engine</td></tr>
+          </tbody>
+        </table>
+        <div class="card-dark">
+          <div class="card-title">Enforcement</div>
+          <div class="card-body">SigV4 enforce tại edge — request unsigned hoặc SigV4 sai → <strong>403</strong> trước khi tới internal services</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>02 · API Entry</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8 : Compute Layer IMAGE -->
+<!-- ============================================================ -->
+<section class="slide" id="s8">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>02 · Compute</span>
+      <h2>Compute Layer &amp; AWS Managed Services</h2>
+      <p class="lead">ECS Fargate cluster: telemetry-api, prediction-worker, ai-engine — private subnets, <code>assignPublicIp=DISABLED</code></p>
+    </div>
+    <div class="media-contain large reveal">
+      <img src="assets/compute-layer-and-aws-managed-services.png" alt="Compute Layer — ECS Fargate services, SQS, EventBridge, DynamoDB, AMP, SNS, S3">
+    </div>
+  </div>
+  <div class="slide-footer"><span>02 · Compute</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9 : DIVIDER — Telemetry Ingest -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s9">
+  <div class="slide-content">
+    <div class="section-num reveal">03</div>
+    <h2 class="reveal">Telemetry Ingest Path</h2>
+    <p class="lead reveal">7 AI signals, PII guard, Prometheus expose — chỉ data sạch mới đi vào AMP</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 10 : Ingest Validation -->
+<!-- ============================================================ -->
+<section class="slide" id="s10">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>03 · Ingest</span>
+      <h2>Telemetry Validation Pipeline</h2>
+      <p class="lead">Telemetry API validate chặt trước khi update Prometheus Gauges</p>
+    </div>
+    <div class="grid grid-3 stagger">
+      <div class="card">
+        <div class="card-icon">🔐</div>
+        <div class="card-title">SigV4 + Tenant Token</div>
+        <div class="card-desc">API Gateway enforce AWS_IAM/SigV4. Header <code>X-Tenant-Ingest-Token</code> bắt buộc.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">⏱</div>
+        <div class="card-title">Strict Timestamp</div>
+        <div class="card-desc">RFC3339 UTC. Reject NaN, Infinity, boolean, string số.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔗</div>
+        <div class="card-title">Tenant Match</div>
+        <div class="card-desc"><code>X-Tenant-Id</code> header phải khớp <code>tenant_id</code> trong body.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🚫</div>
+        <div class="card-title">PII Reject</div>
+        <div class="card-desc">Chặn email, phone, user_id, card_pan, account_id.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📊</div>
+        <div class="card-title">Cardinality Guard</div>
+        <div class="card-desc">Reject session_id, request_id, trace_id, raw_path.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">✅</div>
+        <div class="card-title">7 AI Signals Only</div>
+        <div class="card-desc">Chỉ nhận đúng 7 metric types cho AI prediction.</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>03 · Ingest</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 11 : 7 AI Signals -->
+<!-- ============================================================ -->
+<section class="slide" id="s11">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>03 · Signals</span>
+      <h2>7 AI Signals</h2>
+      <p class="lead">Frequency: 1 phút/metric · Window: 120 phút</p>
+    </div>
+    <div class="def-list stagger">
+      <div class="def-item"><span class="def-term">cpu_usage_percent</span><span class="def-desc">CPU pressure — phần trăm sử dụng</span></div>
+      <div class="def-item"><span class="def-term">memory_usage_percent</span><span class="def-desc">Memory pressure / leak detection</span></div>
+      <div class="def-item"><span class="def-term">active_connections</span><span class="def-desc">Connection pressure — số lượng kết nối đang hoạt động</span></div>
+      <div class="def-item"><span class="def-term">db_connection_pool_pct</span><span class="def-desc">DB pool saturation — phần trăm pool đã dùng</span></div>
+      <div class="def-item"><span class="def-term">queue_depth</span><span class="def-desc">Queue backlog — số message chờ xử lý (zero-fill khi missing)</span></div>
+      <div class="def-item"><span class="def-term">cache_hit_rate_pct</span><span class="def-desc">Cache health — giảm hit rate có thể là dấu hiệu rủi ro</span></div>
+      <div class="def-item"><span class="def-term">api_latency_ms</span><span class="def-desc">API latency — thời gian phản hồi tính bằng milliseconds</span></div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>03 · Signals</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 12 : ADOT → AMP -->
+<!-- ============================================================ -->
+<section class="slide" id="s12">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>03 · ADOT → AMP</span>
+      <h2>ADOT Sidecar → AMP Remote Write</h2>
+    </div>
+    <div class="flow stagger">
+      <div class="flow-step">
+        <span class="step-num">Step 1</span>
+        <span class="step-title">Telemetry API</span>
+        <span class="step-desc">Expose /metrics Prometheus format</span>
+      </div>
+      <div class="flow-step">
+        <span class="step-num">Step 2</span>
+        <span class="step-title">ADOT Scrape</span>
+        <span class="step-desc">Sidecar scrape localhost:8080/metrics mỗi 15 giây</span>
+      </div>
+      <div class="flow-step">
+        <span class="step-num">Step 3</span>
+        <span class="step-title">Batch Process</span>
+        <span class="step-desc">Batch processor chuẩn bị payload</span>
+      </div>
+      <div class="flow-step">
+        <span class="step-num">Step 4</span>
+        <span class="step-title">Remote Write</span>
+        <span class="step-desc">Prometheus remote_write + SigV4 auth lên AMP</span>
+      </div>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">Lưu ý quan trọng</div>
+      <div class="card-body">50 RPS trong k6 chứng minh <strong>ingest API chịu tải tốt</strong> — không có nghĩa AMP lưu 50 raw samples/second. ADOT scrape theo interval 15s, Prediction Worker chỉ cần 1-minute buckets cho window 120 phút.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>03 · ADOT → AMP</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 13 : DIVIDER — Prediction Workflow -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s13">
+  <div class="slide-content">
+    <div class="section-num reveal">04</div>
+    <h2 class="reveal">Prediction Workflow</h2>
+    <p class="lead reveal">EventBridge Scheduler → SQS → Prediction Worker → AI Engine — mỗi 5 phút cho 3 service</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 14 : Prediction Worker Pipeline -->
+<!-- ============================================================ -->
+<section class="slide" id="s14">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>04 · Worker</span>
+      <h2>Prediction Worker Pipeline</h2>
+    </div>
+    <div class="flow-compact stagger" style="justify-content:center">
+      <span class="flow-chip accent">SQS Receive</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Parse Job</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Query AMP 120'</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Align 1-min Buckets</span><span class="flow-arrow">→</span>
+      <span class="flow-chip accent">Gap Ratio Check</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">AI Engine / Fallback</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Audit DynamoDB</span><span class="flow-arrow">→</span>
+      <span class="flow-chip accent">SNS Alert</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Delete SQS</span>
+    </div>
+    <div class="grid grid-2 stagger" style="margin-top:var(--space-md)">
+      <div class="card">
+        <div class="card-title">Data Alignment</div>
+        <div class="card-desc">7 PromQL <code>query_range</code> calls, <code>step=60s</code>, start=end-120m. Forward-fill cho hầu hết signals, zero-fill cho <code>queue_depth</code>. Tính <code>gap_ratio</code> — nếu &ge; 0.5 thì fallback.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Message Safety</div>
+        <div class="card-desc">Worker chỉ <strong>delete SQS message sau khi audit write thành công</strong>. Nếu lỗi, message retry hoặc vào DLQ (maxReceiveCount: 5).</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>04 · Worker</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 15 : AI Engine -->
+<!-- ============================================================ -->
+<section class="slide" id="s15">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>04 · AI Engine</span>
+      <h2>AI Engine — STL + EWMA Detection</h2>
+    </div>
+    <div class="grid grid-3 stagger">
+      <div class="card">
+        <div class="card-icon">🏗</div>
+        <div class="card-title">Architecture</div>
+        <div class="card-desc">ECS Fargate, private subnet, port 8080. Min 2 / Max 4 tasks. Rate limit 600 req/min/tenant.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📡</div>
+        <div class="card-title">Call Path (Path A)</div>
+        <div class="card-desc">Worker → NAT → API Gateway <code>AWS_IAM</code> → VPC Link → internal ALB <code>:80</code> → AI Engine <code>:8080</code></div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧠</div>
+        <div class="card-title">Detection</div>
+        <div class="card-desc">Về detection logic, AI Engine dùng STL seasonal baseline kết hợp EWMA control chart. Nếu confidence thấp hơn 0.7, recommendation sẽ bị downgrade thành INVESTIGATE</div>
+      </div>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">AI Response Output</div>
+      <div class="card-body"><code>anomaly</code> · <code>severity</code> · <code>reasoning</code> · <code>recommendation</code> (action_verb, target, from_to, confidence) · <code>audit_id</code>. Timeout hard limit: <strong>2 giây</strong> — sau đó fallback.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>04 · AI Engine</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 16 : DIVIDER — Fallback & Audit -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s16">
+  <div class="slide-content">
+    <div class="section-num reveal">05</div>
+    <h2 class="reveal">Fallback, Audit &amp; Alert</h2>
+    <p class="lead reveal">Hệ thống không bao giờ im lặng — luôn có decision record dù AI hay fallback</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 17 : AI vs Fallback Comparison -->
+<!-- ============================================================ -->
+<section class="slide" id="s17">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>05 · Fallback</span>
+      <h2>AI Engine vs Static Threshold Fallback</h2>
+    </div>
+    <div class="two-col stagger">
+      <div class="col">
+        <span class="col-label col-green">AI Engine Path</span>
+        <div class="card">
+          <div class="card-title">Detection Method</div>
+          <div class="card-desc">STL baseline + EWMA control chart. Confidence-gated recommendations.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Output</div>
+          <div class="card-desc">anomaly, severity, reasoning, recommendation với action_verb cụ thể</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Audit Source</div>
+          <div class="card-desc"><code>prediction_source = AI_ENGINE</code><br><code>evidence_status = complete_window</code></div>
+        </div>
+      </div>
+      <div class="col">
+        <span class="col-label col-amber">Static Fallback Path</span>
+        <div class="card">
+          <div class="card-title">Trigger Conditions</div>
+          <div class="card-desc">AMP thiếu data · gap_ratio &ge; 0.5 · AI timeout · AI 5xx · AI 429 · Response sai schema</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Output</div>
+          <div class="card-desc">Static threshold check theo service policy trong DynamoDB</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Audit Source</div>
+          <div class="card-desc"><code>prediction_source = static_threshold_fallback</code><br><code>fallback_reason = lý do cụ thể</code></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">Fail-open design</div>
+      <div class="card-body">Fallback là cơ chế fail-open — hệ thống không im lặng khi AI lỗi. SRE biết rõ decision đến từ AI hay fallback qua audit record.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>05 · Fallback</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 18 : Audit & Alert -->
+<!-- ============================================================ -->
+<section class="slide" id="s18">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>05 · Audit &amp; Alert</span>
+      <h2>DynamoDB Audit Trail &amp; SNS Alert</h2>
+    </div>
+    <div class="stat-grid stagger">
+      <div class="stat">
+        <div class="big-num" data-animate="count" data-to="90">0</div>
+        <div class="stat-label">Ngày TTL</div>
+        <div class="stat-body">Audit retention</div>
+      </div>
+      <div class="stat">
+        <div class="big-num">&ge; 0.8</div>
+        <div class="stat-label">Severity threshold</div>
+        <div class="stat-body">Trigger SNS alert</div>
+      </div>
+      <div class="stat">
+        <div class="big-num" data-animate="count" data-to="100">0</div>
+        <div class="stat-label">% Decisions</div>
+        <div class="stat-body">Đều có audit record</div>
+      </div>
+    </div>
+    <div class="grid grid-2 stagger" style="margin-top:var(--space-sm)">
+      <div class="card">
+        <div class="card-title">Audit Record Fields</div>
+        <div class="card-desc"><code>tenant_id</code> · <code>service_id</code> · <code>prediction_id</code> · <code>prediction_source</code> · <code>prediction_status</code> · <code>decision</code> · <code>severity</code> · <code>evidence_status</code> · <code>ai_status_code</code> · <code>reasoning</code> · <code>expires_at_epoch</code></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Alert Replay</div>
+        <div class="card-desc">Alert failure không làm mất audit. SNS alert có thể <strong>replay từ audit record</strong> — audit là source of truth, không phải alert channel.</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>05 · Audit</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 19 : Data Layer IMAGE -->
+<!-- ============================================================ -->
+<section class="slide" id="s19">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>05 · Data Layer</span>
+      <h2>Data Layer — AMP, DynamoDB, S3</h2>
+      <p class="lead">AMP lưu metric, DynamoDB lưu audit/policy, S3 lưu baseline/evidence/failure-buffer</p>
+    </div>
+    <div class="media-contain large reveal">
+      <img src="assets/data-layer-block.png" alt="Data Layer — AMP workspace, DynamoDB audit + policy tables, S3 evidence bucket">
+    </div>
+  </div>
+  <div class="slide-footer"><span>05 · Data Layer</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 20 : DIVIDER — Observability & Cost -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s20">
+  <div class="slide-content">
+    <div class="section-num reveal">06</div>
+    <h2 class="reveal">Observability &amp; Cost Guard</h2>
+    <p class="lead reveal">CloudWatch Dashboard + Alarms + Budget $200/tháng + Cost Breaker Lambda</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 21 : Observability IMAGE + Alarms -->
+<!-- ============================================================ -->
+<section class="slide" id="s21">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>06 · Observability</span>
+      <h2>Observability Stack</h2>
+    </div>
+    <div class="two-col">
+      <div class="media-contain reveal">
+        <img src="assets/observability-block.png" alt="Observability — CloudWatch Dashboard, Alarms, SNS, Cost Breaker Lambda">
+      </div>
+      <div class="col stagger">
+        <div class="card">
+          <div class="card-title">CloudWatch Alarms</div>
+          <div class="card-desc">
+            <code>DLQ depth &gt; 0</code><br>
+            <code>Queue oldest message &gt; 120s</code><br>
+            <code>AI Engine 5xx</code><br>
+            <code>AI p99 latency &gt; 500ms</code><br>
+            <code>ALB 5xx rate &gt; 1%</code><br>
+            <code>RunningTaskCount &lt; min</code>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Observability Layers</div>
+          <div class="card-desc">CloudWatch Logs cho 4 services · CloudWatch Dashboard cho SRE · CloudWatch Alarms → SNS operational alerts</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>06 · Observability</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 22 : Cost Guard Table -->
+<!-- ============================================================ -->
+<section class="slide" id="s22">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>06 · Cost Guard</span>
+      <h2>Budget $200/tháng — 3 Mốc Hành Động</h2>
+    </div>
+    <div class="reveal">
+      <table>
+        <thead><tr><th>Mốc</th><th>Budget</th><th>Hành động</th></tr></thead>
+        <tbody>
+          <tr><td><strong>50%</strong></td><td>$100</td><td>Alert — theo dõi chi phí</td></tr>
+          <tr><td><strong>80%</strong></td><td>$160</td><td>Review — giảm synthetic load, log verbosity</td></tr>
+          <tr><td><strong>100%</strong></td><td>$200</td><td>Cost Breaker Lambda scale down AI Engine + Worker → desiredCount 0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">Cost Breaker Design</div>
+      <div class="card-body">Lambda triggered qua SNS từ AWS Budgets. Scale down <code>ai-engine</code> và <code>prediction-worker</code> nhưng <strong>giữ <code>telemetry-api</code></strong> — để không mất ingest/evidence path. Hỗ trợ <code>DRY_RUN</code> cho test.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>06 · Cost Guard</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 23 : Cost Stats -->
+<!-- ============================================================ -->
+<section class="slide" id="s23">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>06 · Cost</span>
+      <h2>Chi Phí Thực Tế</h2>
+      <p class="lead">Full always-on x86 design tại <code>us-east-1</code></p>
+    </div>
+    <div class="stat-grid stagger">
+      <div class="stat">
+        <div class="big-num">$<span data-animate="count" data-to="158">0</span></div>
+        <div class="stat-label">/tháng base</div>
+        <div class="stat-body">Full always-on design</div>
+      </div>
+      <div class="stat">
+        <div class="big-num">$<span data-animate="count" data-to="190">0</span></div>
+        <div class="stat-label">/tháng +20% buffer</div>
+        <div class="stat-body">Vẫn dưới hard cap</div>
+      </div>
+      <div class="stat">
+        <div class="big-num" style="color:var(--green)">$<span data-animate="count" data-to="200">0</span></div>
+        <div class="stat-label">Hard budget cap</div>
+        <div class="stat-body">Cost Breaker trigger</div>
+      </div>
+      <div class="stat">
+        <div class="big-num">$0.006</div>
+        <div class="stat-label">/prediction cycle</div>
+        <div class="stat-body">25,920 cycles/tháng</div>
+      </div>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">Cost Optimization</div>
+      <div class="card-body">1 NAT Gateway + S3/DynamoDB Gateway Endpoints. AMP usage-based pricing (demo scope gần $0). Không tắt audit/fallback dù cost gần cap.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>06 · Cost</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 24 : DIVIDER — CI/CD & Evidence -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s24">
+  <div class="slide-content">
+    <div class="section-num reveal">07</div>
+    <h2 class="reveal">CI/CD &amp; Evidence</h2>
+    <p class="lead reveal">GitHub OIDC → ECR → Terraform → Post-apply Smoke Test — không dùng static AWS key</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 25 : CI/CD Pipeline -->
+<!-- ============================================================ -->
+<section class="slide" id="s25">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>07 · CI/CD</span>
+      <h2>CI/CD Pipeline</h2>
+    </div>
+    <div class="flow stagger">
+      <div class="flow-step">
+        <span class="step-num">Job 1</span>
+        <span class="step-title">Lint &amp; Validate</span>
+        <span class="step-desc">Markdown check, terraform fmt, terraform validate, pytest</span>
+      </div>
+      <div class="flow-step">
+        <span class="step-num">Job 2</span>
+        <span class="step-title">Security Scan</span>
+        <span class="step-desc">Gitleaks kiểm tra secret leak</span>
+      </div>
+      <div class="flow-step">
+        <span class="step-num">Job 3</span>
+        <span class="step-title">Build &amp; Push</span>
+        <span class="step-desc">Docker build matrix (3 images) → Trivy scan CRITICAL → ECR push SHA tag</span>
+      </div>
+      <div class="flow-step">
+        <span class="step-num">Job 4</span>
+        <span class="step-title">Terraform Deploy</span>
+        <span class="step-desc">Init → Plan → Apply → Post-apply smoke test</span>
+      </div>
+    </div>
+    <div class="grid grid-3 stagger" style="margin-top:var(--space-sm)">
+      <div class="card">
+        <div class="card-icon">🔑</div>
+        <div class="card-title">GitHub OIDC</div>
+        <div class="card-desc">Assume AWS deploy role — không static key, bounded policy</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🐳</div>
+        <div class="card-title">3 Images</div>
+        <div class="card-desc"><code>telemetry_api</code> · <code>prediction_worker</code> · <code>ai_engine</code></div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧪</div>
+        <div class="card-title">Smoke Test</div>
+        <div class="card-desc">Health, ingest SigV4, ECS stable, SQS/DLQ, ADOT logs, AMP</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>07 · CI/CD</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 26 : Runtime Evidence -->
+<!-- ============================================================ -->
+<section class="slide" id="s26">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>07 · Evidence</span>
+      <h2>Runtime Evidence</h2>
+      <p class="lead">k6 load test + DynamoDB audit verification</p>
+    </div>
+    <div class="stat-grid stagger">
+      <div class="stat">
+        <div class="big-num"><span data-animate="count" data-to="5999">0</span></div>
+        <div class="stat-label">Requests / 2 phút</div>
+        <div class="stat-body">50 RPS — 0 failures, 2 dropped</div>
+      </div>
+      <div class="stat">
+        <div class="big-num"><span data-animate="count" data-to="539974">0</span></div>
+        <div class="stat-label">Requests / 3 giờ</div>
+        <div class="stat-body">50 RPS sustained load</div>
+      </div>
+      <div class="stat">
+        <div class="big-num"><span data-animate="count" data-to="256">0</span><span style="font-size:.5em">.19 ms</span></div>
+        <div class="stat-label">p95 Latency</div>
+        <div class="stat-body">3h run via API Gateway</div>
+      </div>
+    </div>
+    <div class="card-dark reveal">
+      <div class="card-title">AI Path Evidence</div>
+      <div class="card-body">DynamoDB audit xác nhận: <code>prediction_source = AI_ENGINE</code> · <code>evidence_status = complete_window</code> · <code>ai_status_code = 200</code> — coverage đủ 3 service: <code>ledger</code>, <code>payment-gw</code>, <code>fraud-detector</code>.</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>07 · Evidence</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 27 : DIVIDER — Caveats & Kết Luận -->
+<!-- ============================================================ -->
+<section class="slide slide-divider" id="s27">
+  <div class="slide-content">
+    <div class="section-num reveal">08</div>
+    <h2 class="reveal">Caveats &amp; Kết Luận</h2>
+    <p class="lead reveal">Trung thực với những gì chưa hoàn thiện</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 28 : Caveats -->
+<!-- ============================================================ -->
+<section class="slide" id="s28">
+  <div class="slide-content slide-content-body">
+    <div class="slide-header reveal">
+      <span class="eyebrow"><span class="dot"></span>08 · Caveats</span>
+      <h2>Documented Caveats</h2>
+      <p class="lead">Nhóm không claim production-ready tuyệt đối</p>
+    </div>
+    <div class="grid grid-2 stagger">
+      <div class="card">
+        <div class="card-icon" style="background:var(--red-tint);color:var(--red)">1</div>
+        <div class="card-title">k6 3h — Operational Pass</div>
+        <div class="card-desc">27 dropped iterations và 19 failed requests trên 539,974 requests. Chấp nhận là operational pass (~0.0035% lỗi, ~0.005% drop) nhưng không phải strict zero-drop.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--blue-tint);color:var(--blue)">2</div>
+        <div class="card-title">SigV4 Enforcement</div>
+        <div class="card-desc">SigV4 enforce ở API Gateway <code>AWS_IAM</code>. App-level SigV4 verification trong AI Engine là production hardening, chưa implement.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--accent-tint);color:var(--accent)">3</div>
+        <div class="card-title">100 RPS Acceptance</div>
+        <div class="card-desc">Chưa được rerun trong final evidence pack. Nếu mentor yêu cầu, cần chạy lại 100 RPS 10 phút.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--green-tint);color:var(--green)">4</div>
+        <div class="card-title">Cost Explorer Lag</div>
+        <div class="card-desc">Cost Explorer actuals có độ trễ. Cost được chứng minh bằng budget/cost-breaker + sizing model, không phải real-time Cost Explorer.</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span>08 · Caveats</span><span>CDO-04</span></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 29 : CLOSING -->
+<!-- ============================================================ -->
+<section class="slide slide-closing" id="s29">
+  <div class="closing-wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>CDO-04 · Capstone Presentation</span>
+    <h1 class="reveal" style="font-size:clamp(1.8rem,4vw,3.2rem);font-weight:800;line-height:1.2">
+      <span class="gradient-text">DEMO PASS</span>
+    </h1>
+    <p class="lead reveal">Architecture and runtime evidence converged for capstone review</p>
+    <div class="closing-badge reveal">
+      <span class="dot"></span>
+      Mọi decision đều có audit, fallback và evidence
+    </div>
+    <div class="flow-compact reveal" style="justify-content:center;margin-top:var(--space-md)">
+      <span class="flow-chip accent">API Gateway Ingest</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">ADOT → AMP</span><span class="flow-arrow">→</span>
+      <span class="flow-chip accent">Prediction Workflow</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">AI / Fallback</span><span class="flow-arrow">→</span>
+      <span class="flow-chip accent">Audit + Alert</span><span class="flow-arrow">→</span>
+      <span class="flow-chip">Cost Guard</span>
+    </div>
+    <div class="meta-row reveal" style="margin-top:var(--space-lg)">
+      <span class="meta-chip">TF4</span>
+      <span class="meta-chip primary"><span class="dot"></span>CDO-04</span>
+      <span class="meta-chip">July 2026</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- PRESENTATION JS -->
+<!-- ============================================================ -->
+<script>
+(function(){
+  'use strict';
+
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('counter');
+  const navHint = document.getElementById('navHint');
+  let current = 0;
+  let animating = false;
+
+  function updateUI(){
+    progress.style.width = ((current + 1) / total * 100) + '%';
+    counter.textContent = (current + 1) + ' / ' + total;
+  }
+
+  function triggerAnimations(slide){
+    setTimeout(function(){
+      slide.querySelectorAll('.reveal').forEach(function(el,i){
+        setTimeout(function(){ el.classList.add('in'); }, i * 80);
+      });
+      slide.querySelectorAll('.stagger').forEach(function(el,i){
+        setTimeout(function(){ el.classList.add('in'); }, 150 + i * 100);
+      });
+      /* count-up */
+      slide.querySelectorAll('[data-animate="count"]').forEach(function(el){
+        if(el.dataset.counted) return;
+        el.dataset.counted = '1';
+        var to = parseInt(el.dataset.to, 10);
+        if(isNaN(to)) return;
+        var dur = Math.min(1800, Math.max(600, to * 2));
+        var start = performance.now();
+        function tick(now){
+          var t = Math.min((now - start) / dur, 1);
+          t = 1 - Math.pow(1 - t, 3); /* easeOutCubic */
+          el.textContent = Math.round(t * to).toLocaleString();
+          if(t < 1) requestAnimationFrame(tick);
+        }
+        setTimeout(function(){ requestAnimationFrame(tick); }, 400);
+      });
+    }, 80);
+  }
+
+  function resetAnimations(slide){
+    slide.querySelectorAll('.reveal').forEach(function(el){ el.classList.remove('in'); });
+    slide.querySelectorAll('.stagger').forEach(function(el){ el.classList.remove('in'); });
+    slide.querySelectorAll('[data-animate="count"]').forEach(function(el){
+      delete el.dataset.counted;
+      var to = el.dataset.to;
+      if(to) el.textContent = '0';
+    });
+  }
+
+  function goTo(n){
+    if(animating || n === current || n < 0 || n >= total) return;
+    animating = true;
+    var prev = slides[current];
+    prev.classList.remove('active');
+    resetAnimations(prev);
+    current = n;
+    var next = slides[current];
+    next.classList.add('active');
+    updateUI();
+    triggerAnimations(next);
+    setTimeout(function(){ animating = false; }, 500);
+  }
+
+  function next(){ goTo(current + 1); }
+  function prev(){ goTo(current - 1); }
+
+  /* Keyboard */
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter' || e.key === 'PageDown'){
+      e.preventDefault(); next();
+    } else if(e.key === 'ArrowLeft' || e.key === 'Backspace' || e.key === 'PageUp'){
+      e.preventDefault(); prev();
+    } else if(e.key === 'Home'){
+      e.preventDefault(); goTo(0);
+    } else if(e.key === 'End'){
+      e.preventDefault(); goTo(total - 1);
+    }
+    /* hide nav hint after first interaction */
+    if(navHint) navHint.style.opacity = '0';
+  });
+
+  /* Touch/swipe */
+  var touchX = 0, touchY = 0;
+  document.addEventListener('touchstart', function(e){ touchX = e.touches[0].clientX; touchY = e.touches[0].clientY; }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    var dx = e.changedTouches[0].clientX - touchX;
+    var dy = e.changedTouches[0].clientY - touchY;
+    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50){
+      if(dx < 0) next(); else prev();
+    }
+    if(navHint) navHint.style.opacity = '0';
+  }, {passive:true});
+
+  /* Click edges */
+  document.addEventListener('click', function(e){
+    if(e.target.closest('a, button, code, table')) return;
+    var x = e.clientX / window.innerWidth;
+    if(x > 0.75) next();
+    else if(x < 0.25) prev();
+  });
+
+  /* Init first slide */
+  updateUI();
+  triggerAnimations(slides[0]);
+})();
+</script>
+
+</body>
+</html>
