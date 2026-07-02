@@ -264,13 +264,14 @@ process_job()
      -> expected 1-minute timestamps
      -> forward_fill for most signals
      -> zero_fill for queue_depth
-     -> max_gap_ratio
+     -> max_gap_ratio + real_count per metric
   -> evidence_status = complete_window or partial_window
   -> build signal_window payload
-  -> if max_gap_ratio >= 0.5: static fallback
+  -> if max_gap_ratio >= 0.5: fallback
   -> else call AI Engine, timeout 2s
   -> validate AI response schema
-  -> on AI error/non-200/invalid: static fallback
+  -> on AI error/non-200/invalid: fallback
+  -> fallback path tries metric-derived rules first, static threshold only if no usable metric window
   -> save audit log to DynamoDB
   -> publish SNS if anomaly and severity high
   -> delete SQS message only on success
@@ -293,6 +294,49 @@ Fallback trigger:
 - AI unavailable.
 - AI invalid response schema.
 - Non-200 response.
+
+Metric-derived fallback rule hiện tại trong `src/prediction_worker/app.py`:
+
+- Worker đọc và align 7 signals từ AMP thành 1-minute buckets, đồng thời giữ `real_count` theo từng metric để phân biệt dữ liệu thật với giá trị imputed.
+- Khi fallback trigger xảy ra (`max_gap_ratio >= 0.5`, AI timeout, AI non-200, AI schema invalid, hoặc không có AI response), Worker thử metric-derived fallback trước.
+- Metric-derived fallback dùng built-in `DEFAULT_FALLBACK_RULES` cho 3 services canonical: `payment-gw`, `ledger`, `fraud-detector`.
+- Mỗi rule gồm `metric_type`, `operator`, `threshold`, `duration_minutes`, `aggregate`, `risk_level`, `action`, và `recommendation`.
+- Worker lấy các bucket mới nhất theo `duration_minutes`, aggregate bằng `max` / `avg` / `min`, rồi so với threshold.
+- Với metric high-is-bad như `queue_depth`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`, `active_connections`, `db_connection_pool_pct`: `ratio = observed / threshold`.
+- Với metric low-is-bad như `cache_hit_rate_pct`: `ratio = threshold / observed`.
+- Nếu có rule breach, Worker chọn rule thắng theo `risk_level`, sau đó `ratio`, sau đó metric priority. Audit ghi `decision` theo rule (`SCALE_UP` hoặc `INVESTIGATE`), `anomaly=true`, `score=min(ratio*100,100)`, `severity=min(ratio,1.0)`, và recommendation theo metric breach.
+- Nếu không có rule breach nhưng có metric thật usable, fallback ghi `KEEP_ALIVE`, `anomaly=false`, và reasoning nêu metric có pressure cao nhất. Nhờ vậy AI lỗi nhưng metrics khỏe không còn tự động `SCALE_UP`.
+- Nếu không có metric window usable hoặc service không có built-in rules, Worker mới dùng legacy `static_threshold` từ DynamoDB policy table; default vẫn là `85.0`. Đây là last-resort, không còn là primary fallback score.
+- `prediction_source` vẫn giữ `STATIC_THRESHOLD_FALLBACK` để tương thích dashboard/audit hiện có; reasoning phân biệt rõ metric-derived fallback hay static-threshold last resort.
+- `prediction_status` được set `fallback` cho cả nhánh data-gap, AI error, no-data.
+
+Default rules chính:
+
+```text
+payment-gw:
+- api_latency_ms > 1000 over 10m, max, critical, SCALE_UP
+- active_connections > 5000 over 10m, max, high, SCALE_UP
+- cpu_usage_percent > 85 over 10m, max, high, SCALE_UP
+- memory_usage_percent > 85 over 15m, avg, high, SCALE_UP
+- db_connection_pool_pct > 80 over 10m, max, high, INVESTIGATE
+- cache_hit_rate_pct < 80 over 15m, min, medium, INVESTIGATE
+
+ledger:
+- db_connection_pool_pct > 80 over 10m, max, critical, SCALE_UP
+- api_latency_ms > 1000 over 10m, max, high, INVESTIGATE
+- cpu_usage_percent > 85 over 10m, max, high, SCALE_UP
+- memory_usage_percent > 85 over 15m, avg, high, INVESTIGATE
+- active_connections > 3000 over 10m, max, medium, INVESTIGATE
+- cache_hit_rate_pct < 75 over 15m, min, medium, INVESTIGATE
+
+fraud-detector:
+- queue_depth > 5000 over 10m, max, critical, SCALE_UP
+- queue_depth > 1000 over 30m, avg, high, SCALE_UP
+- api_latency_ms > 1500 over 10m, max, high, INVESTIGATE
+- cpu_usage_percent > 85 over 10m, max, high, SCALE_UP
+- memory_usage_percent > 85 over 15m, avg, high, INVESTIGATE
+- active_connections > 2000 over 10m, max, medium, INVESTIGATE
+```
 
 Audit write:
 
@@ -1217,9 +1261,12 @@ Expected behavior:
 
 - Worker times out/non-200/invalid response.
 - Worker does not crash.
-- Worker writes audit record with `prediction_source=static_threshold_fallback`.
-- `fallback_reason` records exact reason.
-- SNS alert may still fire if static threshold indicates high risk.
+- Worker writes audit record with `prediction_source=STATIC_THRESHOLD_FALLBACK` and `prediction_status=fallback`.
+- Worker evaluates metric-derived fallback rules from the latest AMP window first.
+- Healthy metrics produce `KEEP_ALIVE` even when AI is unavailable.
+- Breached metric rules produce `SCALE_UP` or `INVESTIGATE` with recommendation fields.
+- Legacy static threshold is used only when no usable metric window/rule exists.
+- SNS alert may still fire when metric-derived fallback marks anomaly/high severity.
 
 Operator checks:
 
@@ -1233,9 +1280,11 @@ Operator checks:
 Expected behavior:
 
 - AMP query missing data or gap ratio >= 0.5.
-- Worker skips AI call.
-- Worker uses static threshold fallback.
+- Worker skips AI call when `max_gap_ratio >= 0.5`.
+- Worker uses metric-derived fallback if enough real metric buckets remain.
+- Worker uses legacy static threshold only when no usable metric window/rule exists.
 - Audit evidence status becomes `partial_window`.
+- Audit prediction status becomes `fallback`.
 
 Operator checks:
 

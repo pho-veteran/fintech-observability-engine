@@ -34,6 +34,44 @@ METRIC_FILL_POLICY = {
 # Nếu tỷ lệ bucket bị thiếu vượt ngưỡng này → không gọi AI, chuyển fallback
 MAX_GAP_THRESHOLD = 0.5  # 50%
 
+DEFAULT_FALLBACK_RULES = {
+    "payment-gw": [
+        {"metric_type": "api_latency_ms", "operator": ">", "threshold": 1000.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "critical", "action": "SCALE_UP", "recommendation": "Scale payment-gw API capacity; latency exceeded 1000ms."},
+        {"metric_type": "active_connections", "operator": ">", "threshold": 5000.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "SCALE_UP", "recommendation": "Scale payment-gw tasks or connection handling capacity."},
+        {"metric_type": "cpu_usage_percent", "operator": ">", "threshold": 85.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "SCALE_UP", "recommendation": "Scale payment-gw tasks; CPU exceeded 85%."},
+        {"metric_type": "memory_usage_percent", "operator": ">", "threshold": 85.0, "duration_minutes": 15, "aggregate": "avg", "risk_level": "high", "action": "SCALE_UP", "recommendation": "Scale or inspect payment-gw memory pressure."},
+        {"metric_type": "db_connection_pool_pct", "operator": ">", "threshold": 80.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "INVESTIGATE", "recommendation": "Investigate payment-gw DB dependency; pool utilization exceeded 80%."},
+        {"metric_type": "cache_hit_rate_pct", "operator": "<", "threshold": 80.0, "duration_minutes": 15, "aggregate": "min", "risk_level": "medium", "action": "INVESTIGATE", "recommendation": "Investigate payment-gw cache degradation; hit rate below 80%."},
+    ],
+    "ledger": [
+        {"metric_type": "db_connection_pool_pct", "operator": ">", "threshold": 80.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "critical", "action": "SCALE_UP", "recommendation": "Scale ledger DB/client capacity; DB pool exceeded 80%."},
+        {"metric_type": "api_latency_ms", "operator": ">", "threshold": 1000.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "INVESTIGATE", "recommendation": "Investigate ledger latency and database query path."},
+        {"metric_type": "cpu_usage_percent", "operator": ">", "threshold": 85.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "SCALE_UP", "recommendation": "Scale ledger tasks; CPU exceeded 85%."},
+        {"metric_type": "memory_usage_percent", "operator": ">", "threshold": 85.0, "duration_minutes": 15, "aggregate": "avg", "risk_level": "high", "action": "INVESTIGATE", "recommendation": "Investigate ledger memory pressure or leak."},
+        {"metric_type": "active_connections", "operator": ">", "threshold": 3000.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "medium", "action": "INVESTIGATE", "recommendation": "Investigate ledger connection fan-in."},
+        {"metric_type": "cache_hit_rate_pct", "operator": "<", "threshold": 75.0, "duration_minutes": 15, "aggregate": "min", "risk_level": "medium", "action": "INVESTIGATE", "recommendation": "Investigate ledger cache hit-rate drop."},
+    ],
+    "fraud-detector": [
+        {"metric_type": "queue_depth", "operator": ">", "threshold": 5000.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "critical", "action": "SCALE_UP", "recommendation": "Scale fraud-detector worker concurrency; queue_depth exceeded 5000."},
+        {"metric_type": "queue_depth", "operator": ">", "threshold": 1000.0, "duration_minutes": 30, "aggregate": "avg", "risk_level": "high", "action": "SCALE_UP", "recommendation": "Scale fraud-detector workers; sustained queue backlog exceeded 1000."},
+        {"metric_type": "api_latency_ms", "operator": ">", "threshold": 1500.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "INVESTIGATE", "recommendation": "Investigate fraud-detector processing latency."},
+        {"metric_type": "cpu_usage_percent", "operator": ">", "threshold": 85.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "high", "action": "SCALE_UP", "recommendation": "Scale fraud-detector workers; CPU exceeded 85%."},
+        {"metric_type": "memory_usage_percent", "operator": ">", "threshold": 85.0, "duration_minutes": 15, "aggregate": "avg", "risk_level": "high", "action": "INVESTIGATE", "recommendation": "Investigate fraud-detector memory pressure."},
+        {"metric_type": "active_connections", "operator": ">", "threshold": 2000.0, "duration_minutes": 10, "aggregate": "max", "risk_level": "medium", "action": "INVESTIGATE", "recommendation": "Investigate fraud-detector upstream connection pressure."},
+    ],
+}
+
+RISK_PRIORITY = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+METRIC_PRIORITY = {
+    "queue_depth": 7,
+    "db_connection_pool_pct": 6,
+    "api_latency_ms": 5,
+    "cpu_usage_percent": 4,
+    "memory_usage_percent": 3,
+    "active_connections": 2,
+    "cache_hit_rate_pct": 1,
+}
+
 # Khởi tạo AWS Clients
 sqs = boto3.client("sqs", region_name=AWS_REGION)
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
@@ -77,6 +115,7 @@ def align_and_impute(raw_result, start_time, end_time, step_seconds=60, fill_pol
     Returns:
         aligned (dict): {timestamp_int: float} đầy đủ 120 bucket
         gap_ratio (float): tỷ lệ bucket bị thiếu trước khi impute (0.0 – 1.0)
+        real_count (int): số bucket có dữ liệu thật trước khi impute
     """
     start_bucket = (int(start_time) // step_seconds) * step_seconds
     end_bucket = (int(end_time) // step_seconds) * step_seconds
@@ -106,7 +145,7 @@ def align_and_impute(raw_result, start_time, end_time, step_seconds=60, fill_pol
                 aligned[ts] = 0.0                 # zero-fill hoặc chưa có giá trị nào
 
     gap_ratio = missing_count / total_buckets if total_buckets > 0 else 1.0
-    return aligned, gap_ratio
+    return aligned, gap_ratio, len(actual_data)
 
 
 def query_amp_metrics(tenant_id, service_name, duration_minutes=120):
@@ -117,7 +156,8 @@ def query_amp_metrics(tenant_id, service_name, duration_minutes=120):
 
     Truy vấn tuần tự 7 tín hiệu cốt lõi từ AMP, sau đó align và impute thành
     1-minute buckets theo METRIC_FILL_POLICY.
-    Trả về (aligned_metrics, max_gap_ratio, start_time, end_time) — caller quyết định có gọi AI không.
+    Trả về (aligned_metrics, max_gap_ratio, start_time, end_time,
+    metric_gap_ratios, metric_real_counts) — caller quyết định có gọi AI không.
     """
     end_time = int(time.time())
     start_time = end_time - (duration_minutes * 60)
@@ -134,6 +174,8 @@ def query_amp_metrics(tenant_id, service_name, duration_minutes=120):
 
     aligned_metrics = {}
     max_gap_ratio = 0.0
+    metric_gap_ratios = {}
+    metric_real_counts = {}
     amp_base_url = AMP_QUERY_ENDPOINT.rstrip("/").removesuffix("/api/v1/query")
     url = f"{amp_base_url}/api/v1/query_range"
 
@@ -163,14 +205,16 @@ def query_amp_metrics(tenant_id, service_name, duration_minutes=120):
 
         # Align và impute bucket theo metric policy
         fill_policy = METRIC_FILL_POLICY.get(signal, "forward_fill")
-        aligned, gap_ratio = align_and_impute(raw_result, start_time, end_time, fill_policy=fill_policy)
+        aligned, gap_ratio, real_count = align_and_impute(raw_result, start_time, end_time, fill_policy=fill_policy)
         aligned_metrics[signal] = aligned
         max_gap_ratio = max(max_gap_ratio, gap_ratio)
+        metric_gap_ratios[signal] = gap_ratio
+        metric_real_counts[signal] = real_count
 
         if gap_ratio > 0:
-            print(f"Signal '{signal}': gap_ratio={gap_ratio:.1%} → {fill_policy}", flush=True)
+            print(f"Signal '{signal}': gap_ratio={gap_ratio:.1%}, real_count={real_count} → {fill_policy}", flush=True)
 
-    return aligned_metrics, max_gap_ratio, start_time, end_time
+    return aligned_metrics, max_gap_ratio, start_time, end_time, metric_gap_ratios, metric_real_counts
 
 
 def get_static_threshold_fallback(tenant_id, service_name):
@@ -184,6 +228,132 @@ def get_static_threshold_fallback(tenant_id, service_name):
     except Exception as e:
         print(f"Lỗi đọc DynamoDB policy table: {str(e)}", flush=True)
     return 85.0
+
+
+def aggregate_rule_values(ts_val_map, duration_minutes, aggregate):
+    """Aggregate latest N one-minute buckets for a fallback rule."""
+    if not ts_val_map:
+        return None
+
+    ordered = sorted(ts_val_map.items())
+    window = ordered[-max(int(duration_minutes), 1):]
+    values = [float(value) for _, value in window if value is not None]
+    if not values:
+        return None
+
+    if aggregate == "max":
+        return max(values)
+    if aggregate == "min":
+        return min(values)
+    return sum(values) / len(values)
+
+
+def compare_rule(observed, operator, threshold):
+    """Compare observed metric value with fallback rule threshold."""
+    if operator == ">":
+        return observed > threshold
+    if operator == "<":
+        return observed < threshold
+    return False
+
+
+def _rule_ratio(observed, operator, threshold):
+    if threshold <= 0:
+        return 0.0
+    if operator == "<":
+        if observed <= 0:
+            return float("inf")
+        return threshold / observed
+    return observed / threshold
+
+
+def _fallback_recommendation(rule, tenant_id, service_name, confidence):
+    return {
+        "action_verb": rule["action"],
+        "target": service_name,
+        "from_to": "current->review capacity",
+        "confidence": confidence,
+        "evidence_link": f"amp://{tenant_id}/{service_name}/{rule['metric_type']}",
+    }
+
+
+def compute_metric_fallback(aligned_metrics, metric_gap_ratios, metric_real_counts, tenant_id, service_name):
+    """Compute fallback decision from actual AMP metric windows before static fallback."""
+    rules = DEFAULT_FALLBACK_RULES.get(service_name, [])
+    best_pressure = None
+    breached = []
+
+    for index, rule in enumerate(rules):
+        metric_type = rule["metric_type"]
+        if metric_real_counts.get(metric_type, 0) <= 0:
+            continue
+
+        observed = aggregate_rule_values(
+            aligned_metrics.get(metric_type, {}),
+            rule["duration_minutes"],
+            rule.get("aggregate", "max"),
+        )
+        if observed is None:
+            continue
+
+        ratio = _rule_ratio(observed, rule["operator"], rule["threshold"])
+        pressure = {
+            "rule": rule,
+            "observed": observed,
+            "ratio": ratio,
+            "index": index,
+        }
+        if best_pressure is None or ratio > best_pressure["ratio"]:
+            best_pressure = pressure
+        if compare_rule(observed, rule["operator"], rule["threshold"]):
+            breached.append(pressure)
+
+    if best_pressure is None:
+        return None
+
+    if not breached:
+        rule = best_pressure["rule"]
+        ratio = best_pressure["ratio"]
+        return {
+            "decision": "KEEP_ALIVE",
+            "score": min(ratio * 100.0, 100.0),
+            "anomaly": False,
+            "severity": min(ratio, 1.0),
+            "reasoning": (
+                "Metric-derived static fallback found no breached rules; "
+                f"highest pressure was {service_name} {rule['metric_type']} "
+                f"{rule.get('aggregate', 'max')}={best_pressure['observed']:.2f} "
+                f"{rule['operator']} threshold={rule['threshold']} ratio={ratio:.2f}."
+            ),
+            "recommendation": None,
+        }
+
+    def sort_key(item):
+        rule = item["rule"]
+        return (
+            RISK_PRIORITY.get(rule.get("risk_level", "low"), 0),
+            item["ratio"],
+            METRIC_PRIORITY.get(rule["metric_type"], 0),
+            -item["index"],
+        )
+
+    winner = max(breached, key=sort_key)
+    rule = winner["rule"]
+    ratio = winner["ratio"]
+    confidence = min(ratio, 1.0)
+    return {
+        "decision": rule["action"],
+        "score": min(ratio * 100.0, 100.0),
+        "anomaly": True,
+        "severity": confidence,
+        "reasoning": (
+            "Metric-derived static fallback rule breach: "
+            f"{service_name} {rule['metric_type']} {rule.get('aggregate', 'max')}={winner['observed']:.2f} "
+            f"{rule['operator']} threshold={rule['threshold']} over {rule['duration_minutes']}m; "
+            f"risk={rule['risk_level']} ratio={ratio:.2f}. {rule['recommendation']}"
+        ),
+        "recommendation": _fallback_recommendation(rule, tenant_id, service_name, confidence),
+    }
 
 
 def as_dynamodb_number(value):
@@ -322,7 +492,11 @@ def process_job(job_data, message_id=None):
     print(f"Đang xử lý job {prediction_id} cho tenant {tenant_id} với lookback {lookback_val} phút...", flush=True)
     
     # 3. Query metrics từ AMP với bucket alignment (CPOA-63)
-    aligned_metrics, max_gap_ratio, start_time, end_time = query_amp_metrics(tenant_id, service_name, duration_minutes=lookback_val)
+    aligned_metrics, max_gap_ratio, start_time, end_time, metric_gap_ratios, metric_real_counts = query_amp_metrics(
+        tenant_id,
+        service_name,
+        duration_minutes=lookback_val,
+    )
 
     # Xác định evidence_status: partial nếu có bất kỳ bucket bị thiếu
     evidence_status = "partial_window" if max_gap_ratio > 0.0 else "complete_window"
@@ -373,7 +547,8 @@ def process_job(job_data, message_id=None):
     if max_gap_ratio >= MAX_GAP_THRESHOLD:
         print(f"Data gap {max_gap_ratio:.1%} vượt ngưỡng {MAX_GAP_THRESHOLD:.0%}. Không gọi AI, kích hoạt fallback.", flush=True)
         prediction_source = "STATIC_THRESHOLD_FALLBACK"
-        reasoning = f"Data gap {max_gap_ratio:.1%} too large. Triggered static fallback."
+        prediction_status = "fallback"
+        reasoning = f"Data gap {max_gap_ratio:.1%} too large. Triggered fallback."
     elif aligned_metrics:
         # 6. Gọi AI Engine bằng IAM SigV4 và validate response schema (CPOA-65, CPOA-66, CPOA-67)
         headers = {
@@ -455,11 +630,28 @@ def process_job(job_data, message_id=None):
 
     # 7. Thực hiện tính toán fallback nếu cần
     if prediction_source == "STATIC_THRESHOLD_FALLBACK":
-        threshold = get_static_threshold_fallback(tenant_id, service_name)
-        score = threshold
-        decision = "SCALE_UP" if score > 80.0 else "KEEP_ALIVE"
-        anomaly = score > 80.0
-        severity = score / 100.0
+        fallback_reason = reasoning
+        metric_fallback = compute_metric_fallback(
+            aligned_metrics,
+            metric_gap_ratios,
+            metric_real_counts,
+            tenant_id,
+            service_name,
+        )
+        if metric_fallback:
+            decision = metric_fallback["decision"]
+            score = metric_fallback["score"]
+            anomaly = metric_fallback["anomaly"]
+            severity = metric_fallback["severity"]
+            reasoning = f"{fallback_reason} {metric_fallback['reasoning']}".strip()
+            recommendation = metric_fallback["recommendation"]
+        else:
+            threshold = get_static_threshold_fallback(tenant_id, service_name)
+            score = threshold
+            decision = "SCALE_UP" if score > 80.0 else "KEEP_ALIVE"
+            anomaly = score > 80.0
+            severity = score / 100.0
+            reasoning = f"{fallback_reason} No usable metric window; used static threshold fallback.".strip()
 
     # 8. Lưu Audit Log kèm đầy đủ thông tin (CPOA-68)
     save_audit_log(

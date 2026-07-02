@@ -7,7 +7,6 @@ import sys
 import os
 from decimal import Decimal
 from unittest import mock
-from datetime import datetime, timezone
 
 import pytest
 
@@ -51,6 +50,9 @@ with mock.patch("boto3.client") as mock_client, mock.patch("boto3.resource") as 
 
     from prediction_worker.app import (
         align_and_impute,
+        aggregate_rule_values,
+        compare_rule,
+        compute_metric_fallback,
         get_static_threshold_fallback,
         save_audit_log,
         process_job,
@@ -78,10 +80,11 @@ class TestAlignAndImpute:
         raw = self._make_raw({self._START + i * self._STEP: float(i * 10) for i in range(self._COUNT)})
         end = self._START + (self._COUNT - 1) * self._STEP
 
-        aligned, gap = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
-                                         fill_policy="forward_fill")
+        aligned, gap, real_count = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
+                                                    fill_policy="forward_fill")
 
         assert gap == 0.0
+        assert real_count == self._COUNT
         assert len(aligned) == self._COUNT
         for i in range(self._COUNT):
             ts = self._START + i * self._STEP
@@ -93,10 +96,11 @@ class TestAlignAndImpute:
         start = self._START + 42
         end = self._START + (self._COUNT - 1) * self._STEP + 42
 
-        aligned, gap = align_and_impute(raw, start, end, step_seconds=self._STEP,
-                                         fill_policy="forward_fill")
+        aligned, gap, real_count = align_and_impute(raw, start, end, step_seconds=self._STEP,
+                                                    fill_policy="forward_fill")
 
         assert gap == 0.0
+        assert real_count == self._COUNT
         assert len(aligned) == self._COUNT
         assert aligned[self._START] == 0.0
         assert aligned[self._START + 9 * self._STEP] == 90.0
@@ -111,14 +115,15 @@ class TestAlignAndImpute:
         })
         end = self._START + 3 * self._STEP
 
-        aligned, gap = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
-                                         fill_policy="forward_fill")
+        aligned, gap, real_count = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
+                                                    fill_policy="forward_fill")
 
         assert aligned[self._START + 0 * self._STEP] == 10.0
         assert aligned[self._START + 1 * self._STEP] == 10.0   # filled by forward_fill
         assert aligned[self._START + 2 * self._STEP] == 30.0
         assert aligned[self._START + 3 * self._STEP] == 40.0
         assert gap == pytest.approx(1.0 / 4)  # 1 missing out of 4
+        assert real_count == 3
 
     def test_missing_zero_fill(self):
         """Middle bucket missing -> zero_fill uses 0.0 regardless of prior value."""
@@ -129,23 +134,25 @@ class TestAlignAndImpute:
         })
         end = self._START + 2 * self._STEP
 
-        aligned, gap = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
-                                         fill_policy="zero_fill")
+        aligned, gap, real_count = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
+                                                    fill_policy="zero_fill")
 
         assert aligned[self._START + 0 * self._STEP] == 10.0
         assert aligned[self._START + 1 * self._STEP] == 0.0    # zero-filled
         assert aligned[self._START + 2 * self._STEP] == 30.0
         assert gap == pytest.approx(1.0 / 3)
+        assert real_count == 2
 
     def test_empty_raw(self):
         """No AMP data at all -> every bucket zero-filled, gap_ratio = 1.0."""
         raw = []
         end = self._START + 4 * self._STEP
 
-        aligned, gap = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
-                                         fill_policy="forward_fill")
+        aligned, gap, real_count = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
+                                                    fill_policy="forward_fill")
 
         assert gap == 1.0
+        assert real_count == 0
         assert len(aligned) == 5
         for ts in aligned:
             assert aligned[ts] == 0.0
@@ -158,8 +165,8 @@ class TestAlignAndImpute:
         })
         end = self._START + 3 * self._STEP
 
-        aligned, gap = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
-                                         fill_policy="forward_fill")
+        aligned, gap, real_count = align_and_impute(raw, self._START, end, step_seconds=self._STEP,
+                                                    fill_policy="forward_fill")
 
         # First two buckets have no prior -> zero-filled
         assert aligned[self._START + 0 * self._STEP] == 0.0
@@ -167,6 +174,94 @@ class TestAlignAndImpute:
         assert aligned[self._START + 2 * self._STEP] == 20.0
         assert aligned[self._START + 3 * self._STEP] == 30.0
         assert gap == pytest.approx(2.0 / 4)
+        assert real_count == 2
+
+
+# ══════════════════════════════════════════════════════════════════════
+# metric-derived fallback helpers
+# ══════════════════════════════════════════════════════════════════════
+
+class TestMetricFallbackHelpers:
+    """Small pure helpers for fallback rule evaluation."""
+
+    def test_aggregate_max_avg_min(self):
+        values = {0: 10.0, 60: 20.0, 120: 30.0}
+        assert aggregate_rule_values(values, 3, "max") == 30.0
+        assert aggregate_rule_values(values, 3, "min") == 10.0
+        assert aggregate_rule_values(values, 3, "avg") == 20.0
+
+    def test_aggregate_uses_latest_duration(self):
+        values = {0: 100.0, 60: 10.0, 120: 20.0, 180: 30.0}
+        assert aggregate_rule_values(values, 2, "max") == 30.0
+
+    def test_aggregate_empty(self):
+        assert aggregate_rule_values({}, 10, "avg") is None
+
+    def test_compare_rule(self):
+        assert compare_rule(90.0, ">", 80.0) is True
+        assert compare_rule(70.0, ">", 80.0) is False
+        assert compare_rule(30.0, "<", 50.0) is True
+        assert compare_rule(60.0, "<", 50.0) is False
+        assert compare_rule(50.0, "==", 50.0) is False
+
+
+class TestComputeMetricFallback:
+    """Metric-derived fallback evaluation per service rules."""
+
+    def _counts(self, *metrics):
+        return {metric: 3 for metric in metrics}
+
+    def test_healthy_payment_metrics_keep_alive(self):
+        aligned = {
+            "cache_hit_rate_pct": {0: 95.0, 60: 98.0},
+            "active_connections": {0: 100.0, 60: 150.0},
+        }
+        result = compute_metric_fallback(aligned, {}, self._counts(*aligned), "t1", "payment-gw")
+
+        assert result["decision"] == "KEEP_ALIVE"
+        assert result["anomaly"] is False
+        assert result["recommendation"] is None
+        assert "no breached rules" in result["reasoning"]
+
+    def test_fraud_queue_breach_scales_up(self):
+        aligned = {
+            "queue_depth": {0: 1000.0, 60: 6200.0, 120: 500.0},
+            "api_latency_ms": {0: 200.0},
+        }
+        result = compute_metric_fallback(aligned, {}, self._counts(*aligned), "t1", "fraud-detector")
+
+        assert result["decision"] == "SCALE_UP"
+        assert result["anomaly"] is True
+        assert result["recommendation"]["action_verb"] == "SCALE_UP"
+        assert result["recommendation"]["target"] == "fraud-detector"
+        assert "queue_depth" in result["reasoning"]
+
+    def test_ledger_db_pool_breach_scales_up(self):
+        aligned = {"db_connection_pool_pct": {0: 60.0, 60: 90.0, 120: 70.0}}
+        result = compute_metric_fallback(aligned, {}, self._counts(*aligned), "t1", "ledger")
+
+        assert result["decision"] == "SCALE_UP"
+        assert result["anomaly"] is True
+        assert "db_connection_pool_pct" in result["reasoning"]
+
+    def test_payment_cache_low_investigates(self):
+        aligned = {
+            "cache_hit_rate_pct": {0: 95.0, 60: 30.0, 120: 91.0},
+            "active_connections": {0: 100.0},
+        }
+        result = compute_metric_fallback(aligned, {}, self._counts(*aligned), "t1", "payment-gw")
+
+        assert result["decision"] == "INVESTIGATE"
+        assert result["anomaly"] is True
+        assert "cache_hit_rate_pct" in result["reasoning"]
+
+    def test_no_rules_returns_none(self):
+        aligned = {"cpu_usage_percent": {0: 90.0}}
+        assert compute_metric_fallback(aligned, {}, self._counts(*aligned), "t1", "unknown-service") is None
+
+    def test_no_usable_metrics_returns_none(self):
+        aligned = {"queue_depth": {0: 0.0, 60: 0.0}}
+        assert compute_metric_fallback(aligned, {}, {"queue_depth": 0}, "t1", "fraud-detector") is None
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -321,11 +416,11 @@ class TestSaveAuditLog:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# process_job  —  AI-unreachable fallback paths
+# process_job  —  fallback paths
 # ══════════════════════════════════════════════════════════════════════
 
 class TestProcessJobFallback:
-    """process_job must trigger STATIC_THRESHOLD_FALLBACK when AI is unreachable."""
+    """process_job must trigger fallback when AI is unreachable."""
 
     _BASE_JOB = {
         "correlation_id": "pred-fb-001",
@@ -334,11 +429,19 @@ class TestProcessJobFallback:
         "lookback_window_minutes": 120,
     }
 
-    def _mock_query(self, aligned_metrics=None, gap_ratio=0.0, start=1719705600, end=1719712800):
+    def _mock_query(self, aligned_metrics=None, gap_ratio=0.0, start=1719705600, end=1719712800,
+                    metric_gap_ratios=None, metric_real_counts=None):
         """Patch query_amp_metrics to return controlled data."""
         return mock.patch(
             "prediction_worker.app.query_amp_metrics",
-            return_value=(aligned_metrics or {}, gap_ratio, start, end),
+            return_value=(
+                aligned_metrics or {},
+                gap_ratio,
+                start,
+                end,
+                metric_gap_ratios or {},
+                metric_real_counts or {},
+            ),
         )
 
     def _mock_fallback(self, threshold=85.0):
@@ -356,8 +459,6 @@ class TestProcessJobFallback:
         """Patch publish_sns_alert to a no-op."""
         return mock.patch("prediction_worker.app.publish_sns_alert")
 
-    # ── AI unreachable: no AMP data ─────────────────────────────
-
     def test_message_id_used_when_correlation_missing(self):
         """Scheduler omits correlation_id; worker uses SQS MessageId for traceability."""
         job = {**self._BASE_JOB}
@@ -372,45 +473,40 @@ class TestProcessJobFallback:
         _, kwargs = mock_save.call_args
         assert kwargs["prediction_id"] == "sqs-message-123"
 
-    def test_no_amp_data_triggers_fallback(self):
-        """Empty aligned_metrics+high gap -> gap threshold branch, prediction_source fallback."""
+    def test_no_amp_data_triggers_static_fallback(self):
+        """No usable metrics -> static fallback last resort."""
         with self._mock_query(aligned_metrics={}, gap_ratio=1.0) as mock_q, \
              self._mock_fallback(85.0) as mock_fb, \
              self._mock_save() as mock_save, \
-             self._mock_sns() as mock_sns:
+             self._mock_sns():
             process_job(self._BASE_JOB)
 
         mock_q.assert_called_once()
         mock_fb.assert_called_once_with("t1", "svc-a")
-        mock_save.assert_called_once()
         _, kwargs = mock_save.call_args
         assert kwargs["prediction_source"] == "STATIC_THRESHOLD_FALLBACK"
-        # gap-threshold branch does NOT set prediction_status to fallback
-        # ponytail: if desired, update process_job gap-threshold branch to also
-        # set prediction_status="fallback" for consistency with AI-error paths.
-        assert kwargs["decision"] == "SCALE_UP"    # 85.0 > 80.0
+        assert kwargs["prediction_status"] == "fallback"
+        assert kwargs["decision"] == "SCALE_UP"    # static 85.0 > 80.0
         assert kwargs["anomaly"] is True
         assert kwargs["severity"] == 0.85
+        assert "No usable metric window" in kwargs["reasoning"]
 
-    # ── AI unreachable: gap threshold exceeded ──────────────────
-
-    def test_gap_exceeds_threshold_triggers_fallback(self):
+    def test_gap_exceeds_threshold_sets_fallback_status(self):
         """max_gap_ratio >= 0.5 -> no AI call, fallback immediately."""
         aligned = {"cpu_usage_percent": {1719705600: 42.0}}
         with self._mock_query(aligned_metrics=aligned, gap_ratio=0.6) as mock_q, \
              self._mock_fallback(30.0) as mock_fb, \
              self._mock_save() as mock_save, \
-             self._mock_sns() as mock_sns:
+             self._mock_sns():
             process_job(self._BASE_JOB)
 
         mock_fb.assert_called_once_with("t1", "svc-a")
         _, kwargs = mock_save.call_args
         assert kwargs["prediction_source"] == "STATIC_THRESHOLD_FALLBACK"
-        assert kwargs["decision"] == "KEEP_ALIVE"  # 30.0 <= 80.0
+        assert kwargs["prediction_status"] == "fallback"
+        assert kwargs["decision"] == "KEEP_ALIVE"  # static 30.0 <= 80.0
         assert kwargs["anomaly"] is False
         assert kwargs["severity"] == 0.3
-
-    # ── AI reachable: complete AI path ─────────────────────────
 
     def test_ai_engine_success_records_contract_fields(self):
         """AI 200 response -> audit keeps correlation, status, recommendation contract."""
@@ -448,49 +544,139 @@ class TestProcessJobFallback:
         assert kwargs["recommendation"]["action_verb"] == "SCALE_UP"
         assert {"action_verb", "target", "from_to", "confidence", "evidence_link"} <= set(kwargs["recommendation"])
 
-    # ── AI unreachable: AI engine HTTP 500 error ────────────────
+    def test_ai_500_healthy_metrics_keep_alive(self):
+        """AI 500 + healthy metrics -> KEEP_ALIVE, not default static SCALE_UP."""
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.text = "Internal Server Error"
+        job = {**self._BASE_JOB, "service_id": "payment-gw"}
+        aligned = {
+            "cache_hit_rate_pct": {0: 95.0, 60: 98.0},
+            "active_connections": {0: 100.0, 60: 150.0},
+        }
+        counts = {"cache_hit_rate_pct": 2, "active_connections": 2}
 
-    def test_ai_engine_http_500_triggers_fallback(self):
-        """AI engine returns non-200 -> fallback, fallback status."""
-        _mock_response = mock.MagicMock()
-        _mock_response.status_code = 500
-        _mock_response.text = "Internal Server Error"
-
-        aligned = {"cpu_usage_percent": {1719705600: 42.0}}
-        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0), \
-             self._mock_fallback(55.0) as mock_fb, \
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, metric_real_counts=counts), \
+             self._mock_fallback(85.0) as mock_fb, \
              self._mock_save() as mock_save, \
-             self._mock_sns() as mock_sns, \
-             mock.patch("prediction_worker.app.requests.post", return_value=_mock_response):
-            process_job(self._BASE_JOB)
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", return_value=response):
+            process_job(job)
 
-        mock_fb.assert_called_once_with("t1", "svc-a")
+        mock_fb.assert_not_called()
         _, kwargs = mock_save.call_args
         assert kwargs["prediction_source"] == "STATIC_THRESHOLD_FALLBACK"
         assert kwargs["prediction_status"] == "fallback"
-        assert kwargs["decision"] == "KEEP_ALIVE"  # 55.0 <= 80.0
+        assert kwargs["decision"] == "KEEP_ALIVE"
+        assert kwargs["anomaly"] is False
+        assert "no breached rules" in kwargs["reasoning"]
 
-    # ── AI unreachable: AI engine connection error ──────────────
+    def test_ai_500_fraud_queue_breach_scales_up(self):
+        """AI 500 + fraud queue_depth breach -> SCALE_UP via metric fallback."""
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.text = "Internal Server Error"
+        job = {**self._BASE_JOB, "service_id": "fraud-detector"}
+        aligned = {
+            "queue_depth": {0: 1000.0, 60: 6200.0},
+            "api_latency_ms": {0: 200.0},
+        }
+        counts = {"queue_depth": 2, "api_latency_ms": 1}
 
-    def test_ai_engine_connection_error_triggers_fallback(self):
-        """AI engine raises ConnectionError -> fallback."""
-        aligned = {"cpu_usage_percent": {1719705600: 42.0}}
-        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0), \
-             self._mock_fallback(95.0) as mock_fb, \
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, metric_real_counts=counts), \
              self._mock_save() as mock_save, \
-             self._mock_sns() as mock_sns, \
-             mock.patch("prediction_worker.app.requests.post",
-                        side_effect=ConnectionError("Connection refused")):
-            process_job(self._BASE_JOB)
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", return_value=response):
+            process_job(job)
 
-        mock_fb.assert_called_once_with("t1", "svc-a")
         _, kwargs = mock_save.call_args
         assert kwargs["prediction_source"] == "STATIC_THRESHOLD_FALLBACK"
         assert kwargs["prediction_status"] == "fallback"
-        assert kwargs["decision"] == "SCALE_UP"   # 95.0 > 80.0
+        assert kwargs["decision"] == "SCALE_UP"
         assert kwargs["anomaly"] is True
+        assert kwargs["recommendation"]["target"] == "fraud-detector"
+        assert "queue_depth" in kwargs["reasoning"]
 
-    # ── Validation ──────────────────────────────────────────────
+    def test_ai_500_ledger_db_breach_scales_up(self):
+        """AI 500 + ledger DB pool breach -> SCALE_UP via metric fallback."""
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.text = "Internal Server Error"
+        job = {**self._BASE_JOB, "service_id": "ledger"}
+        aligned = {"db_connection_pool_pct": {0: 50.0, 60: 90.0}}
+        counts = {"db_connection_pool_pct": 2}
+
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, metric_real_counts=counts), \
+             self._mock_save() as mock_save, \
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", return_value=response):
+            process_job(job)
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["decision"] == "SCALE_UP"
+        assert "db_connection_pool_pct" in kwargs["reasoning"]
+
+    def test_ai_500_payment_cache_low_investigate(self):
+        """AI 500 + payment cache hit low -> INVESTIGATE via metric fallback."""
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.text = "Internal Server Error"
+        job = {**self._BASE_JOB, "service_id": "payment-gw"}
+        aligned = {"cache_hit_rate_pct": {0: 95.0, 60: 30.0, 120: 91.0}}
+        counts = {"cache_hit_rate_pct": 3}
+
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, metric_real_counts=counts), \
+             self._mock_save() as mock_save, \
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", return_value=response):
+            process_job(job)
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["decision"] == "INVESTIGATE"
+        assert kwargs["anomaly"] is True
+        assert "cache_hit_rate_pct" in kwargs["reasoning"]
+
+    def test_ai_500_no_usable_metrics_static_fallback(self):
+        """AI 500 + no real metric buckets -> legacy static threshold fallback."""
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.text = "Internal Server Error"
+        job = {**self._BASE_JOB, "service_id": "fraud-detector"}
+        aligned = {"queue_depth": {0: 0.0, 60: 0.0}}
+        counts = {"queue_depth": 0}
+
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, metric_real_counts=counts), \
+             self._mock_fallback(90.0) as mock_fb, \
+             self._mock_save() as mock_save, \
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", return_value=response):
+            process_job(job)
+
+        mock_fb.assert_called_once_with("t1", "fraud-detector")
+        _, kwargs = mock_save.call_args
+        assert kwargs["decision"] == "SCALE_UP"
+        assert "No usable metric window" in kwargs["reasoning"]
+
+    def test_ai_connection_error_healthy_keep_alive(self):
+        """AI connection error + healthy metrics -> KEEP_ALIVE via metric fallback."""
+        job = {**self._BASE_JOB, "service_id": "payment-gw"}
+        aligned = {
+            "cache_hit_rate_pct": {0: 95.0},
+            "active_connections": {0: 100.0},
+        }
+        counts = {"cache_hit_rate_pct": 1, "active_connections": 1}
+
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, metric_real_counts=counts), \
+             self._mock_save() as mock_save, \
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", side_effect=ConnectionError("Connection refused")):
+            process_job(job)
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["prediction_source"] == "STATIC_THRESHOLD_FALLBACK"
+        assert kwargs["prediction_status"] == "fallback"
+        assert kwargs["decision"] == "KEEP_ALIVE"
+        assert "no breached rules" in kwargs["reasoning"]
 
     def test_requires_tenant_id(self):
         """Missing tenant_id -> ValueError."""
