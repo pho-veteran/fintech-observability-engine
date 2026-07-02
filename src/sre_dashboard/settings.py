@@ -25,8 +25,8 @@ class Settings:
     # ── AWS region for SSO / STS / service clients ────────────────
     aws_region: str = "us-east-1"
 
-    # ── Terraform output directory (mounted read-only) ────────────
-    terraform_output_dir: str = "/terraform"
+    # ── Terraform output cache directory ───────────────────────────
+    terraform_output_dir: str = "."
 
     # ── DynamoDB table names ──────────────────────────────────────
     audit_table_name: str = "cdo04-audit-logs"

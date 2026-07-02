@@ -68,15 +68,23 @@ class MetricsService:
         return normalized
 
     @staticmethod
+    def _escape_label_value(value: str) -> str:
+        """Escape a PromQL label value."""
+        return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+    @staticmethod
     def build_promql(metric_type: str, tenant_id: str, service_id: str) -> str:
         """Build a PromQL query string from validated parameters.
 
-        No raw user input appears in the output. Metric type must be one of
-        the predefined seven.
+        No raw user PromQL is accepted. Dynamic label values are escaped before
+        they are inserted into server-side templates.
         """
         normalized = MetricsService.validate_metric_type(metric_type)
         template = METRIC_TEMPLATES[normalized]
-        return template.format(tenant_id=tenant_id, service_id=service_id)
+        return template.format(
+            tenant_id=MetricsService._escape_label_value(tenant_id),
+            service_id=MetricsService._escape_label_value(service_id),
+        )
 
     def query_metrics(
         self,

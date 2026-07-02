@@ -99,6 +99,7 @@ export interface MetricQueryResult {
   service_id: string;
   series: MetricSeries[];
   query_range: { start: number; end: number; step: number };
+  detail?: string;
 }
 
 export interface AllMetricsResponse {
@@ -107,6 +108,7 @@ export interface AllMetricsResponse {
   service_id: string;
   range_minutes: number;
   metrics: Record<MetricType, MetricQueryResult>;
+  detail?: string;
 }
 
 export type MetricType =
@@ -118,12 +120,28 @@ export type MetricType =
   | "cache_hit_rate_pct"
   | "api_latency_ms";
 
+export type AuditRawItem = Record<string, unknown>;
+
 export interface AuditRecord {
   tenant_id: string;
   service_name: string;
   prediction_id: string;
   decision: string;
   prediction_source: string;
+  prediction_status?: string;
+  ai_status_code?: number;
+  ai_latency_ms?: number;
+  evidence_status?: string;
+  recommendation_action?: string;
+  recommendation_confidence?: number;
+  deployment_version?: string;
+  prediction_timestamp?: string;
+  baseline_version?: string;
+  recommendation_evidence?: string;
+  recommendation_from_to?: string;
+  recommendation_target?: string;
+  audit_id?: string;
+  raw_item?: AuditRawItem;
   score: number;
   anomaly: boolean;
   severity: number;
@@ -135,8 +153,11 @@ export interface AuditRecord {
 export interface AuditsResponse {
   tenant_id: string;
   service_id: string | null;
+  page: number;
   count: number;
   records: AuditRecord[];
+  has_more?: boolean;
+  next_cursor?: string | null;
 }
 
 export interface Policy {
@@ -167,13 +188,13 @@ export interface PolicyUpdateResponse {
 }
 
 export interface CloudWatchAlarm {
-  alarm_name: string;
-  state_value: string;
-  state_reason: string;
-  metric_name: string;
-  namespace: string;
-  threshold: number;
-  comparison_operator: string;
+  alarm_name?: string | null;
+  state_value?: string | null;
+  state_reason?: string | null;
+  metric_name?: string | null;
+  namespace?: string | null;
+  threshold?: number | null;
+  comparison_operator?: string | null;
 }
 
 export interface AlarmsResponse {
@@ -182,10 +203,10 @@ export interface AlarmsResponse {
 }
 
 export interface QueueInfo {
-  queue_url: string;
-  queue_name?: string;
-  approximate_number_of_messages: number;
-  approximate_number_of_messages_not_visible: number;
+  queue_url?: string | null;
+  queue_name?: string | null;
+  approximate_number_of_messages?: number;
+  approximate_number_of_messages_not_visible?: number;
   status?: ProbeResult["status"];
   detail?: string;
 }
@@ -196,14 +217,14 @@ export interface QueueResponse {
 }
 
 export interface EcsService {
-  service_name: string;
-  status: string;
-  desired_count: number;
-  running_count: number;
-  pending_count: number;
-  launch_type: string;
-  task_definition: string;
-  cluster_arn: string;
+  service_name?: string | null;
+  status?: string | null;
+  desired_count?: number;
+  running_count?: number;
+  pending_count?: number;
+  launch_type?: string | null;
+  task_definition?: string | null;
+  cluster_arn?: string | null;
 }
 
 export interface EcsResponse {

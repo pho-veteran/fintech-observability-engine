@@ -12,6 +12,7 @@ build/
 Thumbs.db
 
 # Terraform
+terraform-output.json
 *.tfstate
 *.tfstate.*
 *.tfvars

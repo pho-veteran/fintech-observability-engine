@@ -92,7 +92,7 @@ class AwsClientFactory:
             }
         except Exception as exc:
             logger.warning("SQS probe failed: %s", exc)
-            return {"status": "error", "detail": str(exc)}
+            return {"status": "error", "queue_url": queue_url, "detail": str(exc)}
 
     def probe_cloudwatch(self) -> dict:
         """Describe CloudWatch alarms to verify read access."""
@@ -155,7 +155,7 @@ class AwsClientFactory:
                 all_arns.extend(page.get("serviceArns", []))
             if not all_arns:
                 return []
-            cluster_name = cluster or all_arns[0].split(":")[5].split("/")[0]
+            cluster_name = cluster or all_arns[0].split(":", 5)[5].split("/")[1]
             details = ecs.describe_services(
                 cluster=cluster_name, services=all_arns
             )

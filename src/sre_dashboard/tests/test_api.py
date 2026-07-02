@@ -71,7 +71,12 @@ def test_post_session(client):
     client.app.state.session_manager.login.return_value = {
         "status": "ok", "profile": "dev", "account_id": "123"
     }
-    resp = client.post("/api/session", json={"profile": "dev"})
+    with (
+        mock.patch("sre_dashboard.routes.session.AwsClientFactory"),
+        mock.patch("sre_dashboard.routes.session.DynamoDbService"),
+        mock.patch("sre_dashboard.routes.session.MetricsService"),
+    ):
+        resp = client.post("/api/session", json={"profile": "dev"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
 
@@ -182,14 +187,60 @@ def test_get_single_metric_invalid_type_returns_400(client):
 
 
 def test_list_audits(client):
-    client.app.state.dynamodb_service.query_audit_logs.return_value = [
-        {"tenant_id": "tnt-1", "service_name": "svc-a", "decision": "KEEP_ALIVE"}
-    ]
+    client.app.state.dynamodb_service.query_audit_logs.return_value = (
+        [
+            {
+                "tenant_id": "tnt-1",
+                "service_name": "svc-a",
+                "decision": "KEEP_ALIVE",
+                "prediction_source": "AI_ENGINE",
+                "prediction_status": "complete",
+                "ai_status_code": 200,
+                "raw_item": {"recommendation_confidence": 0.92},
+            }
+        ],
+        {"tenant_id": "tnt-1", "service_time": "2026-07-02T00:00:00+00:00"},
+    )
     resp = client.get("/api/audits?tenant_id=tnt-1")
     assert resp.status_code == 200
     data = resp.json()
     assert data["tenant_id"] == "tnt-1"
+    assert data["page"] == 0
     assert data["count"] == 1
+    assert data["has_more"] is True
+    assert data["next_cursor"]
+    assert data["records"][0]["prediction_source"] == "AI_ENGINE"
+    assert data["records"][0]["prediction_status"] == "complete"
+    assert data["records"][0]["ai_status_code"] == 200
+    assert data["records"][0]["raw_item"]["recommendation_confidence"] == 0.92
+    client.app.state.dynamodb_service.query_audit_logs.assert_called_once_with(
+        tenant_id="tnt-1",
+        service_id=None,
+        limit=50,
+        cursor=None,
+        page=0,
+    )
+
+
+def test_list_audits_page_number(client):
+    client.app.state.dynamodb_service.query_audit_logs.return_value = ([], None)
+    resp = client.get("/api/audits?tenant_id=tnt-1&limit=25&page=3")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["page"] == 3
+    client.app.state.dynamodb_service.query_audit_logs.assert_called_once_with(
+        tenant_id="tnt-1",
+        service_id=None,
+        limit=25,
+        cursor=None,
+        page=3,
+    )
+
+
+def test_list_audits_invalid_cursor_returns_400(client):
+    resp = client.get("/api/audits?tenant_id=tnt-1&cursor=bad")
+    assert resp.status_code == 400
+    assert "Invalid audit pagination cursor" in resp.json()["detail"]
 
 
 # ── Policies ─────────────────────────────────────────────────────

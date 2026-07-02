@@ -150,23 +150,48 @@ class DynamoDbService:
 
     # ── Audit Logs ───────────────────────────────────────────────
 
+    @staticmethod
+    def _to_jsonable(value: Any) -> Any:
+        """Convert DynamoDB Decimal values into JSON-safe primitives."""
+        if isinstance(value, Decimal):
+            return int(value) if value % 1 == 0 else float(value)
+        if isinstance(value, dict):
+            return {key: DynamoDbService._to_jsonable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [DynamoDbService._to_jsonable(item) for item in value]
+        return value
+
     def query_audit_logs(
         self,
         tenant_id: str,
         service_id: str | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+        cursor: dict[str, Any] | None = None,
+        page: int = 0,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """Query audit logs for a tenant, optionally filtered by service.
 
         Uses the audit table tenant_id partition key, then filters service in-process
         because no tenant/service GSI exists.
         """
         try:
-            response = self._audit_table.query(
-                KeyConditionExpression=Key("tenant_id").eq(tenant_id),
-                ScanIndexForward=False,
-                Limit=limit,
-            )
+            query_kwargs: dict[str, Any] = {
+                "KeyConditionExpression": Key("tenant_id").eq(tenant_id),
+                "ScanIndexForward": False,
+                "Limit": limit,
+            }
+            if cursor:
+                query_kwargs["ExclusiveStartKey"] = cursor
+
+            # ponytail: direct page jumps walk DynamoDB cursors; add cursor cache/GSI if deep-page latency matters.
+            for _ in range(page):
+                response = self._audit_table.query(**query_kwargs)
+                next_key = response.get("LastEvaluatedKey")
+                if not next_key:
+                    return [], None
+                query_kwargs["ExclusiveStartKey"] = next_key
+
+            response = self._audit_table.query(**query_kwargs)
             items = response.get("Items", [])
             if service_id:
                 items = [
@@ -181,17 +206,24 @@ class DynamoDbService:
                     "prediction_id": item.get("prediction_id"),
                     "decision": item.get("decision"),
                     "prediction_source": item.get("prediction_source"),
+                    "prediction_status": item.get("prediction_status"),
+                    "ai_status_code": int(item.get("ai_status_code", 0) or 0),
+                    "ai_latency_ms": int(item.get("ai_latency_ms", 0) or 0),
+                    "evidence_status": item.get("evidence_status"),
+                    "recommendation_action": item.get("recommendation_action"),
+                    "recommendation_confidence": float(item.get("recommendation_confidence", 0) or 0),
                     "score": float(item.get("score", 0)),
                     "anomaly": item.get("anomaly", False),
                     "severity": float(item.get("severity", 0)),
                     "reasoning": item.get("reasoning", ""),
                     "timestamp": item.get("timestamp"),
                     "service_time": item.get("service_time"),
+                    "raw_item": self._to_jsonable(item),
                 })
-            return result
+            return result, response.get("LastEvaluatedKey")
         except Exception as exc:
             logger.warning("query_audit_logs failed: %s", exc)
-            return []
+            return [], None
 
     # ── Policies ─────────────────────────────────────────────────
 

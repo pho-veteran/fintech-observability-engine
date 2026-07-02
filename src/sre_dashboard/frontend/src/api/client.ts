@@ -61,7 +61,10 @@ const query = (params: Record<string, string | number | null | undefined>) => {
 
 export const api = {
   health: () => request<{ status: string; service: string }>("/health"),
-  profiles: () => request<{ profiles: Profile[] }>("/api/profiles"),
+  profiles: async () => {
+    const response = await request<Profile[] | { profiles: Profile[] }>("/api/profiles");
+    return Array.isArray(response) ? { profiles: response } : response;
+  },
   session: () => request<SessionState>("/api/session"),
   login: (body: LoginRequest) =>
     request<LoginResponse>("/api/session", {
@@ -77,8 +80,8 @@ export const api = {
     request<AllMetricsResponse>(
       `/api/metrics/${encodeURIComponent(serviceId)}${query({ tenant_id: tenantId, range_minutes: rangeMinutes })}`,
     ),
-  audits: (tenantId: string, serviceId?: string, limit = 50) =>
-    request<AuditsResponse>(`/api/audits${query({ tenant_id: tenantId, service_id: serviceId, limit })}`),
+  audits: (tenantId: string, serviceId?: string, limit = 50, cursor?: string, page = 0) =>
+    request<AuditsResponse>(`/api/audits${query({ tenant_id: tenantId, service_id: serviceId, limit, cursor, page })}`),
   policies: (tenantId?: string) => request<PoliciesResponse>(`/api/policies${query({ tenant_id: tenantId })}`),
   updatePolicy: (tenantId: string, serviceName: string, body: PolicyUpdateRequest) =>
     request<PolicyUpdateResponse>(

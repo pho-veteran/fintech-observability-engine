@@ -9,8 +9,8 @@ services:
     volumes:
       # Mount AWS config read-only so the container can use SSO profiles
       - ~/.aws:/home/appuser/.aws:ro
-      # Mount terraform directory read-only for infrastructure discovery
-      - ../../infra/terraform:/terraform:ro
+      # Mount generated Terraform outputs read-only (create with README command)
+      - ./terraform-output.json:/app/sre_dashboard/terraform-output.json:ro
     environment:
       - APP_NAME=sre-dashboard
       - APP_VERSION=0.1.0
@@ -18,7 +18,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8001
       - AWS_REGION=us-east-1
-      - TERRAFORM_OUTPUT_DIR=/terraform
+      - TERRAFORM_OUTPUT_DIR=/app/sre_dashboard
       - DYNAMODB_AUDIT_TABLE=cdo04-audit-logs
       - DYNAMODB_POLICY_TABLE=cdo04-service-policies
     restart: unless-stopped
