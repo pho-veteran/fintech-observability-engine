@@ -646,18 +646,18 @@ code,kbd{font-family:var(--font-mono);font-size:.82em;background:rgba(245,158,11
         </div>
       </div>
       <div class="col">
-        <span class="col-label col-amber">Static Fallback Path</span>
+        <span class="col-label col-amber">Rule-based Fallback Path</span>
         <div class="card">
           <div class="card-title">Trigger Conditions</div>
           <div class="card-desc">AMP thiếu data · gap_ratio &ge; 0.5 · AI timeout · AI 5xx · AI 429 · Response sai schema</div>
         </div>
         <div class="card">
           <div class="card-title">Output</div>
-          <div class="card-desc">Static threshold check theo service policy trong DynamoDB</div>
+          <div class="card-desc">Metric-derived fallback rules (built-in rules cho 3 dịch vụ); static threshold là last resort</div>
         </div>
         <div class="card">
           <div class="card-title">Audit Source</div>
-          <div class="card-desc"><code>prediction_source = static_threshold_fallback</code><br><code>fallback_reason = lý do cụ thể</code></div>
+          <div class="card-desc"><code>prediction_source = STATIC_THRESHOLD_FALLBACK</code><br><code>prediction_status = fallback</code></div>
         </div>
       </div>
     </div>
