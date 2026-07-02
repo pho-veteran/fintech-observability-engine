@@ -26,14 +26,16 @@ const BASE_URL = /^https?:\/\//.test(ENDPOINT)
   ? ENDPOINT.replace(/\/$/, '')
   : `${__ENV.TELEMETRY_API_SCHEME || 'http'}://${ENDPOINT.replace(/\/$/, '')}`;
 
+const COMMON_LABELS = { region: 'us-east-1', env: 'acceptance', service_tier: 'demo' };
+
 const METRICS = [
-  ['cpu_usage_percent', 42, { region: 'us-east-1', environment: 'acceptance' }],
-  ['memory_usage_percent', 55, { region: 'us-east-1', environment: 'acceptance' }],
-  ['active_connections', 120, { region: 'us-east-1', environment: 'acceptance' }],
-  ['db_connection_pool_pct', 35, { region: 'us-east-1', db_type: 'postgres', environment: 'acceptance' }],
-  ['queue_depth', 3, { region: 'us-east-1', queue_name: 'acceptance', environment: 'acceptance' }],
-  ['cache_hit_rate_pct', 91, { region: 'us-east-1', cache_type: 'redis', environment: 'acceptance' }],
-  ['api_latency_ms', 180, { region: 'us-east-1', environment: 'acceptance' }],
+  ['cpu_usage_percent', 42, COMMON_LABELS],
+  ['memory_usage_percent', 55, COMMON_LABELS],
+  ['active_connections', 120, COMMON_LABELS],
+  ['db_connection_pool_pct', 35, { ...COMMON_LABELS, db_type: 'postgres' }],
+  ['queue_depth', 3, { ...COMMON_LABELS, queue_name: 'acceptance' }],
+  ['cache_hit_rate_pct', 91, { ...COMMON_LABELS, cache_type: 'redis' }],
+  ['api_latency_ms', 180, COMMON_LABELS],
 ];
 
 // Decide at init-time whether to use SigV4.
