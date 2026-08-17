@@ -135,6 +135,7 @@ jobs:
       - name: Terraform Plan
         run: |
           terraform -chdir=infra/terraform plan -out=tfplan \
+            -var-file=lab.tfvars.example \
             -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
             -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
             -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
@@ -237,8 +238,9 @@ jobs:
 
       - name: Terraform Init
         run: |
-          deploy_environment="${{ github.ref_name == 'main' && 'prod' || 'staging' }}"
-          state_key="tf4-cdo04/${deploy_environment}/terraform.tfstate"
+          # The disposable lab keeps one state key so PR plan and apply describe
+          # the same infrastructure.
+          state_key="tf4-cdo04/sandbox/terraform.tfstate"
           echo "Terraform backend key: ${state_key}"
           terraform -chdir=infra/terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -248,6 +250,7 @@ jobs:
       - name: Terraform Plan
         run: |
           terraform -chdir=infra/terraform plan \
+            -var-file=lab.tfvars.example \
             -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
             -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
             -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
@@ -257,6 +260,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           terraform -chdir=infra/terraform apply -auto-approve \
+            -var-file=lab.tfvars.example \
             -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
             -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
             -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"

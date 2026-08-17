@@ -53,6 +53,12 @@ variable "github_repo" {
   default     = "fintech-observability-engine"
 }
 
+variable "github_additional_owners" {
+  description = "Extra GitHub owners (e.g. a fork used to run the lab deploy) allowed to assume the deploy role for the same repository name"
+  type        = list(string)
+  default     = ["pho-veteran"]
+}
+
 variable "github_allowed_feature_branches" {
   description = "Optional temporary feature branches allowed to assume the deploy role for smoke testing; keep empty by default"
   type        = list(string)
