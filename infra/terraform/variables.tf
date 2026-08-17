@@ -94,3 +94,44 @@ variable "enable_acm" {
   default     = true
 }
 
+variable "lookback_window_minutes" {
+  description = "Prediction lookback window; production uses 120 and the disposable lab uses 30"
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = contains([30, 120], var.lookback_window_minutes)
+    error_message = "lookback_window_minutes must be 30 (lab) or 120 (production)."
+  }
+}
+
+variable "ai_engine_desired_count" {
+  description = "Desired AI Engine task count"
+  type        = number
+  default     = 2
+}
+
+variable "ai_engine_min_capacity" {
+  description = "Minimum AI Engine autoscaling capacity"
+  type        = number
+  default     = 2
+}
+
+variable "ai_engine_max_capacity" {
+  description = "Maximum AI Engine autoscaling capacity"
+  type        = number
+  default     = 4
+}
+
+variable "evidence_force_destroy" {
+  description = "Allow Terraform to empty the evidence bucket during destroy; use only for disposable labs"
+  type        = bool
+  default     = false
+}
+
+variable "ecr_force_delete" {
+  description = "Allow Terraform to delete non-empty ECR repositories; use only for disposable labs"
+  type        = bool
+  default     = false
+}
+

@@ -49,7 +49,7 @@
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `signal_window` | array | ✓ | Time-series datapoints (BẮT BUỘC chứa dữ liệu của ≥ 120 phút gần nhất để AI có đủ context dự báo (Test window ≥ 2h). Thiếu/sai schema -> 422 Unprocessable Entity) |
+| `signal_window` | array | ✓ | Time-series datapoints (tối thiểu 120 datapoints tổng cộng; production dùng 120 phút, disposable lab dùng 30 phút × 7 signals). Thiếu/sai schema -> 422 Unprocessable Entity |
 | `signal_window[].ts` | RFC3339 | ✓ | Event timestamp UTC |
 | `signal_window[].tenant_id` | string | ✓ | Tenant identifier (Bắt buộc để đảm bảo multi-tenant isolation, phải match với header X-Tenant-Id) |
 | `signal_window[].service_id` | string | ✓ | Service identifier (Bắt buộc để mapping với per-service baseline) |

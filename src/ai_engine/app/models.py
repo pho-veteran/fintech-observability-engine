@@ -35,9 +35,10 @@ class PredictRequest(BaseModel):
     @field_validator("signal_window")
     @classmethod
     def check_window_size(cls, v: List[SignalDatapoint]) -> List[SignalDatapoint]:
-        # Schema rule -> surfaces as HTTP 422 (ai-api-contract.md error table).
+        # The worker sends seven one-minute signals; a 30-minute lab window
+        # contains 217 aligned datapoints while the production window contains 847.
         if len(v) < 120:
-            raise ValueError("signal_window must contain >= 120 datapoints (>= 120 minutes of context).")
+            raise ValueError("signal_window must contain >= 120 datapoints.")
         return v
 
 

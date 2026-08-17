@@ -69,16 +69,34 @@ terraform apply          # creates S3 backend bucket + GitHub OIDC
 
 ## Main Terraform
 
+Local commands use the AWS CLI `default` profile. Initialize the partial S3 backend with an existing state bucket, then create ECR before the first image push:
+
 ```bash
-cd infra/terraform
-terraform init
-terraform fmt -recursive
-terraform validate
-terraform plan
-terraform apply
+AWS_REGION="us-east-1"
+TF_STATE_BUCKET="<bootstrap-state-bucket>"
+
+terraform -chdir=infra/terraform init -reconfigure \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
+  -backend-config="key=tf4-cdo04/sandbox/terraform.tfstate" \
+  -backend-config="region=${AWS_REGION}"
+terraform -chdir=infra/terraform fmt -check -recursive
+terraform -chdir=infra/terraform validate
+
+terraform -chdir=infra/terraform apply \
+  -target='module.compute.aws_ecr_repository.services["telemetry_api"]' \
+  -target='module.compute.aws_ecr_repository.services["prediction_worker"]' \
+  -target='module.compute.aws_ecr_repository.services["ai_engine"]'
 ```
 
-Apply creates the full platform: VPC, security groups, data stores, ECS cluster, all three services, ALB, autoscaling, and observability.
+After building, scanning, and pushing all three images, run the full plan/apply with their immutable ECR URIs. There is no `enable_services` toggle.
+
+Production/design defaults use a 120-minute lookback and two AI Engine tasks. `terraform/lab.tfvars.example` is a disposable profile with a 30-minute lookback, one AI task, ACM disabled, and opt-in S3/ECR forced cleanup. Lab evidence must not be relabeled as a 120-minute production-window test.
+
+The full apply creates the VPC, security groups, data stores, ECS cluster, all three services, ALB, autoscaling, and observability.
+
+## Isolated continuous load generator
+
+`load-generator/` is a separate Terraform root and state. It creates a small EC2 machine in its own VPC and continuously sends 21 synthetic ingest requests per minute through the public API Gateway. It is not part of the main platform modules or VPC and must be destroyed before the main platform. See [`load-generator/README.md`](load-generator/README.md).
 
 ## Interaction points
 
@@ -176,19 +194,19 @@ aws ecs describe-services --cluster "$CLUSTER" \
 Queue depth and DLQ:
 
 ```bash
-QUEUE_NAME=$(terraform output -raw prediction_queue_name)
-aws sqs get-queue-attributes --queue-url "https://sqs.us-east-1.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/$QUEUE_NAME" \
+AWS_REGION="${AWS_REGION:-$(aws configure get region)}"
+QUEUE_URL=$(terraform output -raw prediction_queue_url)
+aws sqs get-queue-attributes --region "$AWS_REGION" --queue-url "$QUEUE_URL" \
   --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
 
-DLQ_NAME=$(terraform output -raw prediction_queue_dlq_name)
-aws sqs get-queue-attributes --queue-url "https://sqs.us-east-1.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/$DLQ_NAME" \
+DLQ_URL=$(terraform output -raw prediction_queue_dlq_url)
+aws sqs get-queue-attributes --region "$AWS_REGION" --queue-url "$DLQ_URL" \
   --attribute-names ApproximateNumberOfMessages
 ```
 
 ## Notes
 
-- Secret values (ingest token, Slack webhook, AI SigV4 config) are created as empty containers. Populate them through AWS Console or CLI after apply.
-- HTTPS/ACM is not wired yet; the ALB listens on HTTP port 80 only. ACM certificate belongs to a future task.
-- Prediction Worker uses a placeholder container image (`python:3.11-slim`) until the real application artifact is available.
-- AI Engine uses a placeholder image (`MOCK_PLACEHOLDER_AI_ENGINE:latest`); replace with real image before production use.
+- Terraform generates and stores the demo tenant ingest token in Secrets Manager. Slack webhook and optional AI SigV4 config secrets remain empty until populated separately.
+- The internal ALB listens on HTTP port 80. ACM is managed only when `enable_acm=true`; the disposable lab disables it because no custom-domain consumer is wired.
+- ECS task definitions must receive real immutable Telemetry API, Prediction Worker, and AI Engine image URIs before the full apply.
 - The cost breaker Lambda scales `ai-engine` and `prediction-worker` to 0 when the monthly budget hits 100%. Telemetry API is intentionally left running.

@@ -274,6 +274,13 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
+    sid       = "AllowECRLogin"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "AllowECRPushAccess"
     effect = "Allow"
 
@@ -340,7 +347,9 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "lambda:PutFunctionEventInvokeConfig",
       "lambda:DeleteFunctionEventInvokeConfig",
       "lambda:AddPermission",
-      "lambda:RemovePermission"
+      "lambda:RemovePermission",
+      "lambda:TagResource",
+      "lambda:UntagResource"
     ]
 
     resources = [

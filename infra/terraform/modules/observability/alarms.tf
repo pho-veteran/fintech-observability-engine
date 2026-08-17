@@ -372,7 +372,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_sc_p99_latency" {
   dimensions = local.ai_sc_dimensions
 }
 
-# AI running task count < 2
+# AI running task count below configured minimum
 resource "aws_cloudwatch_metric_alarm" "ai_engine_running_tasks" {
   alarm_name          = "${var.project_name}-ai-engine-running-tasks-${var.environment}"
   comparison_operator = "LessThanThreshold"
@@ -381,8 +381,8 @@ resource "aws_cloudwatch_metric_alarm" "ai_engine_running_tasks" {
   namespace           = "ECS/ContainerInsights"
   period              = 60
   statistic           = "Minimum"
-  threshold           = 2
-  alarm_description   = "AI Engine running task count is below 2"
+  threshold           = var.ai_engine_min_capacity
+  alarm_description   = "AI Engine running task count is below ${var.ai_engine_min_capacity}"
   alarm_actions       = local.scoped_alarm_actions
   ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "breaching"

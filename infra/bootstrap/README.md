@@ -1,90 +1,45 @@
 # Bootstrap -- CDO-04 Terraform Foundation
 
-Bootstrap scope:
-- CPOA-37: Terraform S3 backend bucket
-- CPOA-38 / CDO-W12-002: GitHub Actions OIDC provider and Terraform deploy role
+Bootstrap creates the S3 remote-state bucket and the GitHub Actions OIDC deploy role. It does not create a DynamoDB lock table, static GitHub AWS keys, or an AdministratorAccess role.
 
-Creates:
-- S3 state bucket
-- Versioning
-- AES256 encryption
-- Block Public Access
-- TLS-only bucket policy
-- Noncurrent-version lifecycle
-- Native Terraform S3 lockfile workflow (`use_lockfile = true`)
-- IAM OIDC Provider for `token.actions.githubusercontent.com`
-- IAM Role `tf4-cdo04-github-deploy-role`
-- Bounded Terraform deploy policy with `Project=tf4-cdo04` tag guardrail
+Created resources:
 
-Does not create:
-- DynamoDB lock table
-- Static AWS access keys for GitHub Actions
-- AdministratorAccess policy
-## GitHub OIDC deploy role
+- versioned, AES256-encrypted S3 state bucket with public access blocked and TLS-only access;
+- native Terraform S3 lockfile support (`use_lockfile = true`);
+- OIDC provider for `token.actions.githubusercontent.com`;
+- `tf4-cdo04-github-deploy-role` with project-scoped permissions.
 
-GitHub Actions assumes `tf4-cdo04-github-deploy-role` through OIDC.
+## Local bootstrap
 
-Allowed trust subjects:
-- `repo:dragongoldi2609/tf4-cdo04-repo:ref:refs/heads/main`
-- `repo:dragongoldi2609/tf4-cdo04-repo:ref:refs/heads/develop`
-- `repo:dragongoldi2609/tf4-cdo04-repo:environment:staging`
-- `repo:dragongoldi2609/tf4-cdo04-repo:environment:prod`
-- temporary feature branches listed in `github_allowed_feature_branches`
+Local commands use the AWS CLI `default` profile unless `AWS_PROFILE` is set explicitly:
 
-GitHub workflow must use:
-
-```yaml
-permissions:
-  id-token: write
-  contents: read
-
----
-
-# 7. Tạo workflow smoke test
-
-Tạo folder/file:
-
-```powershell
-mkdir .github\workflows
-New-Item .github\workflows\oidc-smoke-test.yml
-
-Dán:
-
-name: OIDC Smoke Test
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - develop
-      - An_CDO-W12-002-github-oidc
-
-permissions:
-  id-token: write
-  contents: read
-
-jobs:
-  assume-role-test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials by OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/tf4-cdo04-github-deploy-role
-          role-session-name: github-actions-tf4-cdo04
-
-      - name: Verify caller identity
-        run: |
-          aws sts get-caller-identity
-
-Lấy <ACCOUNT_ID> bằng:
-
+```bash
 aws sts get-caller-identity
+terraform -chdir=infra/bootstrap init
+terraform -chdir=infra/bootstrap fmt -check -recursive
+terraform -chdir=infra/bootstrap validate
+terraform -chdir=infra/bootstrap plan
+terraform -chdir=infra/bootstrap apply
+```
 
-GitHub OIDC không cần lưu AWS access key dài hạn trong GitHub Secrets; workflow dùng OIDC token để assume role tạm thời.
+Bootstrap is normally a one-time operation. Do not rerun it just to deploy the disposable lab when a state bucket already exists outside the current bootstrap state.
+
+## GitHub OIDC trust
+
+The default repository trust is:
+
+- `repo:dragoncoil2609/fintech-observability-engine:ref:refs/heads/main`
+- `repo:dragoncoil2609/fintech-observability-engine:ref:refs/heads/develop`
+- `repo:dragoncoil2609/fintech-observability-engine:environment:staging`
+- `repo:dragoncoil2609/fintech-observability-engine:environment:prod`
+- temporary branches listed in `github_allowed_feature_branches`
+
+Configure these GitHub repository variables before enabling the workflows:
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `AWS_ACCOUNT_ID` | output of `aws sts get-caller-identity --query Account --output text` | Builds the deploy-role ARN and ECR registry URI |
+| `AWS_REGION` | `us-east-1` | AWS and Terraform backend region |
+| `TF_STATE_BUCKET` | bootstrap `state_bucket_name` output | Partial S3 backend configuration |
+
+The checked-in `.github/workflows/oidc-smoke-test.yml` uses those variables. GitHub obtains short-lived credentials through OIDC; do not store long-lived AWS access keys as repository secrets.

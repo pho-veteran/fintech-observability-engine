@@ -1,0 +1,19 @@
+# Disposable one-hour internship-report lab.
+# The production/design defaults remain a 120-minute lookback and two AI tasks.
+lookback_window_minutes = 30
+
+ai_engine_desired_count = 1
+ai_engine_min_capacity  = 1
+ai_engine_max_capacity  = 4
+
+enable_acm = false
+alert_email = "vinhnt.23it@vku.udn.vn"
+
+# Lab data is disposable. Keep both false outside short-lived sandbox runs.
+evidence_force_destroy = true
+ecr_force_delete       = true
+
+# Supply immutable, account-specific ECR image URIs at plan/apply time:
+# telemetry_api_image_tag     = "<account>.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:<tag>"
+# prediction_worker_image_tag = "<account>.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:<tag>"
+# ai_engine_image_tag         = "<account>.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:<tag>"

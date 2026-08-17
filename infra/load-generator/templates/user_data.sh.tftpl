@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+install -d -m 0755 /opt/foresight-load-generator
+install -d -m 0750 /etc/foresight-load-generator
+
+cat >/etc/foresight-load-generator/config <<'CONFIG'
+AWS_REGION=${aws_region}
+API_BASE_URL=${api_base_url}
+TENANT_ID=${tenant_id}
+TENANT_TOKEN_SECRET_ARN=${tenant_token_secret_arn}
+LOG_GROUP_NAME=${log_group_name}
+CONFIG
+chmod 0640 /etc/foresight-load-generator/config
+
+printf '%s' '${k6_script_base64}' | base64 --decode >/opt/foresight-load-generator/continuous_demo_ingest.js
+printf '%s' '${run_script_base64}' | base64 --decode >/opt/foresight-load-generator/run-k6.sh
+printf '%s' '${signature_module_base64}' | base64 --decode >/opt/foresight-load-generator/signature.js
+chmod 0644 /opt/foresight-load-generator/continuous_demo_ingest.js /opt/foresight-load-generator/signature.js
+chmod 0755 /opt/foresight-load-generator/run-k6.sh
+
+# Amazon Linux 2023 includes AWS CLI v2, Python 3, and SSM Agent. Install k6
+# from Grafana's official RPM repository without placing credentials in user data.
+dnf install -y ca-certificates curl
+rpm --import https://dl.k6.io/key.gpg
+cat >/etc/yum.repos.d/k6.repo <<'REPO'
+[k6]
+name=k6 repository
+baseurl=https://dl.k6.io/rpm/x86_64
+enabled=1
+gpgcheck=1
+gpgkey=https://dl.k6.io/key.gpg
+REPO
+dnf install -y k6
+systemctl enable --now amazon-ssm-agent
+
+useradd --system --home-dir /opt/foresight-load-generator --shell /sbin/nologin foresight-k6 || true
+chown -R foresight-k6:foresight-k6 /opt/foresight-load-generator /etc/foresight-load-generator
+chmod 0555 /opt/foresight-load-generator
+chmod 0444 /opt/foresight-load-generator/continuous_demo_ingest.js /opt/foresight-load-generator/signature.js
+chmod 0555 /opt/foresight-load-generator/run-k6.sh
+chmod 0550 /etc/foresight-load-generator
+chmod 0440 /etc/foresight-load-generator/config
+
+cat >/etc/systemd/system/foresight-k6.service <<'UNIT'
+[Unit]
+Description=Foresight Lens continuous synthetic telemetry generator
+Wants=network-online.target amazon-ssm-agent.service
+After=network-online.target amazon-ssm-agent.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=foresight-k6
+Group=foresight-k6
+ExecStart=/opt/foresight-load-generator/run-k6.sh
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/foresight-load-generator /opt/foresight-load-generator
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now foresight-k6.service
