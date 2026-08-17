@@ -55,12 +55,12 @@ S3 state bucket tách riêng với bucket evidence/failure-buffer. State bucket 
 
 ### 1.5 Trình tự bootstrap Terraform v1
 
-1. `infra/bootstrap/` tạo S3 state bucket, GitHub OIDC provider và backend role tối thiểu cho state access.
-2. `infra/terraform/` apply phần network/data/observability và ECR repositories.
-3. CI build/push image tags vào ECR.
-4. `enable_services = true` apply ECS task definitions/services với image tags cụ thể.
+1. `infra/bootstrap/` tạo S3 state bucket, GitHub OIDC provider và deploy role.
+2. `infra/terraform/` target-apply đúng ba ECR repositories trước lần push image đầu tiên.
+3. CI build/scan/push image tags bất biến vào ECR.
+4. CI tạo saved plan với ba image URI cụ thể rồi apply đúng saved plan đó để tạo toàn bộ platform.
 
-Không dùng public image placeholder cho production/demo services.
+Không có biến `enable_services`. Không dùng public image placeholder cho production/demo services.
 
 ### 1.6 Ghi chú AI networking theo contract
 

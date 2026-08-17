@@ -24,15 +24,26 @@ terraform -chdir=infra/bootstrap apply
 
 Bootstrap is normally a one-time operation. Do not rerun it just to deploy the disposable lab when a state bucket already exists outside the current bootstrap state.
 
+The legacy developer IAM user `tin` is disabled by default (`create_tin_user=false`) and is not part of the disposable lab. Enable it only for an explicit developer-access requirement.
+
+For the ordered bootstrap-to-nuke procedure, use [`../../docs/06_deployment_runbook.md`](../../docs/06_deployment_runbook.md).
+
 ## GitHub OIDC trust
 
-The default repository trust is:
+For the upstream owner and every owner in `github_additional_owners`, trust is
+limited to these repository contexts in both plain and enterprise-style GitHub
+subject formats:
 
-- `repo:dragoncoil2609/fintech-observability-engine:ref:refs/heads/main`
-- `repo:dragoncoil2609/fintech-observability-engine:ref:refs/heads/develop`
-- `repo:dragoncoil2609/fintech-observability-engine:environment:staging`
-- `repo:dragoncoil2609/fintech-observability-engine:environment:prod`
-- temporary branches listed in `github_allowed_feature_branches`
+- `ref:refs/heads/main`;
+- `ref:refs/heads/develop`;
+- `pull_request`;
+- `environment:sandbox`;
+- `environment:staging`;
+- `environment:prod`;
+- temporary branches listed in `github_allowed_feature_branches`.
+
+The wildcard portions of enterprise-style subjects match GitHub's immutable
+owner/repository IDs; they do not widen the allowed ref or environment suffix.
 
 Configure these GitHub repository variables before enabling the workflows:
 

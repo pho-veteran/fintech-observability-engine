@@ -41,8 +41,9 @@ Local commands use the AWS CLI `default` profile:
 cp infra/load-generator/terraform.tfvars.example infra/load-generator/terraform.tfvars
 # Fill the four main-platform output values.
 
+TF_STATE_BUCKET="$(terraform -chdir=infra/bootstrap output -raw state_bucket_name)"
 terraform -chdir=infra/load-generator init -reconfigure \
-  -backend-config="bucket=tf4-cdo04-terraform-state-7na270jm" \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="key=tf4-cdo04/load-generator/sandbox/terraform.tfstate" \
   -backend-config="region=us-east-1"
 terraform -chdir=infra/load-generator fmt -check -recursive
@@ -50,7 +51,7 @@ terraform -chdir=infra/load-generator validate
 terraform -chdir=infra/load-generator plan -var-file=terraform.tfvars
 ```
 
-This repository intentionally stops at code and local validation; the load generator is not part of the main CI deployment workflow. Any future plan/apply must be reviewed and confirmed separately from the main platform ECR/full apply checkpoints.
+The load generator is not part of the main CI deployment workflow. Review and apply it separately after the main platform passes smoke tests. The complete validated procedure and strict teardown order are in [`../../docs/06_deployment_runbook.md`](../../docs/06_deployment_runbook.md).
 
 ## Operations
 

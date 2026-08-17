@@ -1,6 +1,7 @@
 name: CDO-04 Deploy Pipeline
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -141,12 +142,14 @@ jobs:
             -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
       - name: Save Plan Output (human-readable)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           terraform -chdir=infra/terraform show -no-color tfplan > plan-output.txt
           echo "--- Terraform Plan Summary ---" >> plan-output.txt
           echo "PR: #${{ github.event.pull_request.number }}" >> plan-output.txt
           echo "Commit: ${{ github.sha }}" >> plan-output.txt
-          echo "Branch: ${{ github.head_ref }}" >> plan-output.txt
+          echo "Branch: ${HEAD_REF}" >> plan-output.txt
 
       - name: Upload Terraform Plan Artifact
         uses: actions/upload-artifact@v4
@@ -161,7 +164,7 @@ jobs:
   build-and-push:
     needs: [lint-and-validate, security-scan]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' # Chỉ build/push khi merge/push vào develop/main
+    if: github.event_name != 'pull_request' # Push hoặc chạy thủ công; PR chỉ plan
     strategy:
       fail-fast: false
       matrix:
@@ -218,7 +221,8 @@ jobs:
   terraform-deploy:
     needs: [build-and-push]
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'prod' || 'staging' }} # Dynamic environment (staging for develop, prod for main)
+    # This workflow intentionally deploys the disposable lab profile and sandbox state.
+    environment: sandbox
 
     steps:
       - name: Checkout Code
@@ -250,24 +254,20 @@ jobs:
       - name: Terraform Plan
         run: |
           terraform -chdir=infra/terraform plan \
+            -out=tfplan \
             -var-file=lab.tfvars.example \
             -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
             -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
             -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
-      # Chạy Apply nếu đây là push/merge trực tiếp vào nhánh deploy
+      # Apply the exact saved plan produced above.
       - name: Terraform Apply
-        if: github.event_name == 'push'
-        run: |
-          terraform -chdir=infra/terraform apply -auto-approve \
-            -var-file=lab.tfvars.example \
-            -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
-            -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
-            -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
+        if: github.event_name != 'pull_request'
+        run: terraform -chdir=infra/terraform apply -auto-approve tfplan
 
       - name: Extract Terraform Outputs
         id: tf-outputs
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         run: |
           echo "api_gateway_base_url=$(terraform -chdir=infra/terraform output -raw api_gateway_base_url)" >> "$GITHUB_OUTPUT"
           echo "ecs_cluster_name=$(terraform -chdir=infra/terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
@@ -285,7 +285,7 @@ jobs:
 
       # Smoke Test sau deploy — endpoint duy nhất là API Gateway (không dùng ALB)
       - name: Run Post-Apply Smoke Test
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         env:
           API_GATEWAY_BASE_URL: ${{ steps.tf-outputs.outputs.api_gateway_base_url }}
           ECS_CLUSTER_NAME: ${{ steps.tf-outputs.outputs.ecs_cluster_name }}

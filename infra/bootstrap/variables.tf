@@ -64,3 +64,9 @@ variable "github_allowed_feature_branches" {
   type        = list(string)
   default     = []
 }
+
+variable "create_tin_user" {
+  description = "Create the legacy developer IAM user named tin; keep false for the disposable lab"
+  type        = bool
+  default     = false
+}

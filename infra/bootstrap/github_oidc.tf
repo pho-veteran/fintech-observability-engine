@@ -12,21 +12,34 @@ data "aws_caller_identity" "current" {}
 locals {
   # The lab deploy runs from a fork, so the trust policy must accept the same
   # repository name under more than one owner.
-  github_trusted_owners = concat([var.github_owner], var.github_additional_owners)
+  github_trusted_owners = distinct(concat(
+    [var.github_owner],
+    var.github_additional_owners
+  ))
 
-  github_oidc_allowed_subjects = concat(
+  github_oidc_subject_suffixes = concat(
     [
-      "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/main",
-      "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/develop",
-      "repo:${var.github_owner}/${var.github_repo}:pull_request",
-      "repo:${var.github_owner}/${var.github_repo}:environment:staging",
-      "repo:${var.github_owner}/${var.github_repo}:environment:prod"
+      "ref:refs/heads/main",
+      "ref:refs/heads/develop",
+      "pull_request",
+      "environment:sandbox",
+      "environment:staging",
+      "environment:prod"
     ],
     [
       for branch in var.github_allowed_feature_branches :
-      "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/${branch}"
+      "ref:refs/heads/${branch}"
     ]
   )
+
+  github_oidc_allowed_subjects = flatten([
+    for owner in local.github_trusted_owners : [
+      for suffix in local.github_oidc_subject_suffixes : [
+        "repo:${owner}/${var.github_repo}:${suffix}",
+        "repo:${owner}@*/${var.github_repo}@*:${suffix}"
+      ]
+    ]
+  ])
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -73,13 +86,9 @@ data "aws_iam_policy_document" "github_oidc_trust" {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       # GitHub emits enterprise-style subjects (owner@<id>/repo@<id>) in this
-      # environment, so both plain and enterprise forms are trusted per owner.
-      values = flatten([
-        for owner in local.github_trusted_owners : [
-          "repo:${owner}/${var.github_repo}:*",
-          "repo:${owner}@*/${var.github_repo}@*:*"
-        ]
-      ])
+      # environment, so both plain and enterprise forms are trusted, but only
+      # for the explicitly approved refs and environments.
+      values = local.github_oidc_allowed_subjects
     }
   }
 }
