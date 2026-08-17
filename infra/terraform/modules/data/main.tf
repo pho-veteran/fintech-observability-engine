@@ -158,7 +158,7 @@ resource "aws_sqs_queue" "prediction" {
 
 resource "aws_s3_bucket" "evidence" {
   bucket        = "${var.project_name}-evidence-${var.environment}"
-  force_destroy = false
+  force_destroy = var.evidence_force_destroy
 }
 
 resource "aws_s3_bucket_versioning" "evidence" {

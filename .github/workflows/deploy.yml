@@ -15,6 +15,11 @@ permissions:
   contents: read    # Bắt buộc để checkout code
   actions: write    # Bắt buộc để upload Terraform plan artifact lên PR
 
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false # Không hủy giữa chừng để tránh lỗi trạng thái Terraform lơ lửng
@@ -39,13 +44,25 @@ jobs:
           terraform_version: 1.10.0
 
       - name: Terraform Fmt Check
-        run: terraform -chdir=infra/terraform fmt -check
+        run: terraform fmt -check -recursive infra
 
       - name: Terraform Init (Validation only)
-        run: terraform -chdir=infra/terraform init -backend=false
+        run: |
+          terraform -chdir=infra/bootstrap init -backend=false
+          terraform -chdir=infra/terraform init -backend=false
+          terraform -chdir=infra/load-generator init -backend=false
 
       - name: Terraform Validate
-        run: terraform -chdir=infra/terraform validate
+        run: |
+          terraform -chdir=infra/bootstrap validate
+          terraform -chdir=infra/terraform validate
+          terraform -chdir=infra/load-generator validate
+
+      - name: Generator Script Syntax
+        run: |
+          bash -n infra/load-generator/files/run-k6.sh
+          bash -n infra/load-generator/templates/user_data.sh.tftpl
+          node --check tests/k6/continuous_demo_ingest.js
 
       - name: Setup Python for Testing
         uses: actions/setup-python@v5
@@ -97,8 +114,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::511825856493:role/tf4-cdo04-github-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/tf4-cdo04-github-deploy-role
           role-session-name: tf-plan-pr-${{ github.event.pull_request.number }}
 
       - name: Setup Terraform
@@ -110,14 +127,18 @@ jobs:
         run: |
           state_key="tf4-cdo04/sandbox/terraform.tfstate"
           echo "Terraform backend key: ${state_key}"
-          terraform -chdir=infra/terraform init -reconfigure -backend-config="key=${state_key}"
+          terraform -chdir=infra/terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${state_key}" \
+            -backend-config="region=${AWS_REGION}"
 
       - name: Terraform Plan
         run: |
           terraform -chdir=infra/terraform plan -out=tfplan \
-            -var="telemetry_api_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
-            -var="prediction_worker_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
-            -var="ai_engine_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
+            -var-file=lab.tfvars.example \
+            -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
+            -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
+            -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
       - name: Save Plan Output (human-readable)
         run: |
@@ -135,6 +156,8 @@ jobs:
           retention-days: 14
 
   # Job 3: Build & Push Docker Images (Sử dụng Matrix Build)
+  # First deployment prerequisite: create the three ECR repositories with the
+  # targeted Terraform apply documented in infra/terraform/README.md.
   build-and-push:
     needs: [lint-and-validate, security-scan]
     runs-on: ubuntu-latest
@@ -150,8 +173,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::511825856493:role/tf4-cdo04-github-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/tf4-cdo04-github-deploy-role
           role-session-name: ecr-push-${{ matrix.service }}
 
       - name: Login to Amazon ECR
@@ -204,8 +227,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::511825856493:role/tf4-cdo04-github-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/tf4-cdo04-github-deploy-role
           role-session-name: tf-deploy
 
       - name: Setup Terraform
@@ -215,25 +238,32 @@ jobs:
 
       - name: Terraform Init
         run: |
+          # The disposable lab keeps one state key so PR plan and apply describe
+          # the same infrastructure.
           state_key="tf4-cdo04/sandbox/terraform.tfstate"
           echo "Terraform backend key: ${state_key}"
-          terraform -chdir=infra/terraform init -reconfigure -backend-config="key=${state_key}"
+          terraform -chdir=infra/terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${state_key}" \
+            -backend-config="region=${AWS_REGION}"
 
       - name: Terraform Plan
         run: |
           terraform -chdir=infra/terraform plan \
-            -var="telemetry_api_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
-            -var="prediction_worker_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
-            -var="ai_engine_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
+            -var-file=lab.tfvars.example \
+            -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
+            -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
+            -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
       # Chạy Apply nếu đây là push/merge trực tiếp vào nhánh deploy
       - name: Terraform Apply
         if: github.event_name == 'push'
         run: |
           terraform -chdir=infra/terraform apply -auto-approve \
-            -var="telemetry_api_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
-            -var="prediction_worker_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
-            -var="ai_engine_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
+            -var-file=lab.tfvars.example \
+            -var="telemetry_api_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
+            -var="prediction_worker_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
+            -var="ai_engine_image_tag=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
       - name: Extract Terraform Outputs
         id: tf-outputs
@@ -267,5 +297,5 @@ jobs:
           AMP_QUERY_ENDPOINT: ${{ steps.tf-outputs.outputs.amp_query_endpoint }}
           AI_API_GATEWAY_ENDPOINT: ${{ steps.tf-outputs.outputs.ai_api_gateway_endpoint }}
           TENANT_INGEST_TOKEN: ${{ steps.tf-outputs.outputs.tenant_ingest_token }}
-          AWS_REGION: us-east-1
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: bash scripts/post_apply_smoke.sh

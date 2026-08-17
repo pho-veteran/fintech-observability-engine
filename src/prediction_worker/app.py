@@ -477,16 +477,19 @@ def process_job(job_data, message_id=None):
     if not tenant_id or not service_name:
         raise ValueError("Thiếu trường thông tin bắt buộc: tenant_id, service_id/service_name")
 
-    # 2. Xác thực trường lookback_window_minutes bắt buộc bằng 120
+    # 2. Production uses 120 minutes; the disposable report lab uses 30 minutes.
     if lookback_window_minutes is not None:
         try:
             lookback_val = int(lookback_window_minutes)
-        except ValueError:
+        except (TypeError, ValueError):
             raise ValueError(f"lookback_window_minutes không đúng định dạng số: {lookback_window_minutes}")
-        if lookback_val != 120:
-            raise ValueError(f"Xác thực thất bại: lookback_window_minutes phải bằng 120 (nhận được: {lookback_val})")
+        if lookback_val not in {30, 120}:
+            raise ValueError(
+                f"Xác thực thất bại: lookback_window_minutes phải bằng 30 hoặc 120 "
+                f"(nhận được: {lookback_val})"
+            )
     else:
-        # Nếu không truyền, mặc định gán 120 theo thiết kế
+        # Preserve the production contract when the scheduler omits the field.
         lookback_val = 120
 
     print(f"Đang xử lý job {prediction_id} cho tenant {tenant_id} với lookback {lookback_val} phút...", flush=True)

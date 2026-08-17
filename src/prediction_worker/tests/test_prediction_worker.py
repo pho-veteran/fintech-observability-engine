@@ -691,10 +691,30 @@ class TestProcessJobFallback:
         with pytest.raises(ValueError, match="service_id"):
             process_job(bad_job)
 
-    def test_validates_lookback_120(self):
-        """lookback_window_minutes != 120 -> ValueError."""
+    @pytest.mark.parametrize("lookback", [30, 120])
+    def test_accepts_supported_lookback_profiles(self, lookback):
+        """The disposable lab and production lookback profiles are valid."""
+        job = {**self._BASE_JOB, "lookback_window_minutes": lookback}
+        with self._mock_query(aligned_metrics={}, gap_ratio=1.0) as mock_query, \
+             self._mock_fallback(), self._mock_save(), self._mock_sns():
+            process_job(job)
+
+        assert mock_query.call_args.kwargs["duration_minutes"] == lookback
+
+    def test_defaults_missing_lookback_to_120(self):
+        """Missing lookback preserves the production 120-minute contract."""
+        job = {**self._BASE_JOB}
+        del job["lookback_window_minutes"]
+        with self._mock_query(aligned_metrics={}, gap_ratio=1.0) as mock_query, \
+             self._mock_fallback(), self._mock_save(), self._mock_sns():
+            process_job(job)
+
+        assert mock_query.call_args.kwargs["duration_minutes"] == 120
+
+    def test_rejects_unsupported_lookback(self):
+        """Only the 30-minute lab and 120-minute production profiles are valid."""
         bad_job = {**self._BASE_JOB, "lookback_window_minutes": 60}
-        with pytest.raises(ValueError, match="120"):
+        with pytest.raises(ValueError, match="30 hoặc 120"):
             process_job(bad_job)
 
     def test_validates_lookback_type(self):

@@ -83,3 +83,9 @@ variable "prediction_mode" {
   type        = string
   default     = "balanced"
 }
+
+variable "evidence_force_destroy" {
+  description = "Allow deletion of a non-empty evidence bucket for disposable labs"
+  type        = bool
+  default     = false
+}

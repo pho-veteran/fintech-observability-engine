@@ -68,6 +68,12 @@ variable "ai_engine_service_name" {
   type        = string
 }
 
+variable "ai_engine_min_capacity" {
+  description = "Minimum healthy AI Engine task count"
+  type        = number
+  default     = 2
+}
+
 variable "alb_arn_suffix" {
   description = "ALB ARN suffix for CloudWatch dimensions (empty if ALB not yet deployed)"
   type        = string
@@ -132,5 +138,5 @@ variable "kms_key_arn" {
 variable "runbook_url" {
   description = "URL link tới tài liệu hướng dẫn vận hành SRE khi có cảnh báo kích hoạt"
   type        = string
-  default     = "https://github.com/dragoncoil2609/tf4-cdo04-repo/blob/main/docs/misc/cost_guard_runbook.md"
+  default     = "https://github.com/dragoncoil2609/fintech-observability-engine/blob/main/docs/misc/cost_guard_runbook.md"
 }

@@ -30,6 +30,7 @@ terraform.rc
 # Runtime artifacts
 local-store/
 logs/
+*.tfplan
 
 # Generated evidence artifacts
 /evidence/*
@@ -40,5 +41,10 @@ logs/
 # Scratch directory
 /scratch/
 
+# Generated internship documents
+/internship/*.doc
+/internship/*.docx
+
 # Claude
 /.claude/
+/.serena/

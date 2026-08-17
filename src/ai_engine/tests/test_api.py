@@ -78,6 +78,23 @@ def test_missing_tenant_id_is_401():
     assert r.status_code == 401  # contract: missing tenant header -> 401
 
 
+def test_accepts_30_minute_seven_signal_lab_window():
+    window = []
+    for metric_type in [
+        "cpu_usage_percent",
+        "memory_usage_percent",
+        "active_connections",
+        "db_connection_pool_pct",
+        "queue_depth",
+        "cache_hit_rate_pct",
+        "api_latency_ms",
+    ]:
+        window.extend(generate_baseline(metric_type, 50, 31))
+
+    r = client.post("/v1/predict", json=_payload(window), headers=HEADERS)
+    assert r.status_code == 200
+
+
 def test_less_than_120_points_is_422():
     r = client.post("/v1/predict", json=_payload(generate_baseline("cpu_usage_percent", 50, 119)),
                     headers=HEADERS)

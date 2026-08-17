@@ -242,3 +242,9 @@ variable "enable_acm" {
   type        = bool
   default     = true
 }
+
+variable "ecr_force_delete" {
+  description = "Allow deletion of non-empty ECR repositories for disposable labs"
+  type        = bool
+  default     = false
+}

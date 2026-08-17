@@ -39,10 +39,12 @@ module "networking" {
 module "data" {
   source = "./modules/data"
 
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  tags         = local.common_tags
+  project_name            = var.project_name
+  environment             = var.environment
+  aws_region              = var.aws_region
+  tags                    = local.common_tags
+  lookback_window_minutes = var.lookback_window_minutes
+  evidence_force_destroy  = var.evidence_force_destroy
 }
 
 module "compute" {
@@ -97,13 +99,14 @@ module "compute" {
 
   tenant_ingest_token_secret_arn = module.data.tenant_ingest_token_secret_arn
 
-  ai_engine_desired_count        = 2
-  ai_engine_min_capacity         = 2
-  ai_engine_max_capacity         = 4
+  ai_engine_desired_count        = var.ai_engine_desired_count
+  ai_engine_min_capacity         = var.ai_engine_min_capacity
+  ai_engine_max_capacity         = var.ai_engine_max_capacity
   ai_engine_autoscale_cpu_target = 70
 
-  domain_name = var.domain_name
-  enable_acm  = var.enable_acm
+  domain_name      = var.domain_name
+  enable_acm       = var.enable_acm
+  ecr_force_delete = var.ecr_force_delete
 }
 
 
@@ -130,6 +133,7 @@ module "observability" {
 
   telemetry_api_service_name = module.compute.telemetry_api_service_name
   ai_engine_service_name     = module.compute.ai_service_name
+  ai_engine_min_capacity     = var.ai_engine_min_capacity
 
   alb_arn_suffix                        = module.compute.alb_arn_suffix
   telemetry_api_target_group_arn_suffix = module.compute.telemetry_api_target_group_arn_suffix

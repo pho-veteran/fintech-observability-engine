@@ -274,6 +274,13 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
+    sid       = "AllowECRLogin"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "AllowECRPushAccess"
     effect = "Allow"
 
@@ -340,7 +347,9 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "lambda:PutFunctionEventInvokeConfig",
       "lambda:DeleteFunctionEventInvokeConfig",
       "lambda:AddPermission",
-      "lambda:RemovePermission"
+      "lambda:RemovePermission",
+      "lambda:TagResource",
+      "lambda:UntagResource"
     ]
 
     resources = [
@@ -409,18 +418,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 }
 
-resource "aws_iam_policy" "github_deploy_policy" {
-  name        = "${var.project_name}-github-deploy-policy"
-  description = "Bounded Terraform deploy policy for ${var.project_name} GitHub Actions"
-  policy      = data.aws_iam_policy_document.github_deploy_policy.json
-
-  tags = merge(var.tags, {
-    Name    = "${var.project_name}-github-deploy-policy"
-    Purpose = "terraform-deploy"
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "attach_github_deploy_policy" {
-  role       = aws_iam_role.github_deploy_role.name
-  policy_arn = aws_iam_policy.github_deploy_policy.arn
+resource "aws_iam_role_policy" "github_deploy_policy" {
+  name   = "${var.project_name}-github-deploy-policy"
+  role   = aws_iam_role.github_deploy_role.id
+  policy = data.aws_iam_policy_document.github_deploy_policy.json
 }

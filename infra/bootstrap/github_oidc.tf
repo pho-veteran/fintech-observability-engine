@@ -10,6 +10,10 @@
 data "aws_caller_identity" "current" {}
 
 locals {
+  # The lab deploy runs from a fork, so the trust policy must accept the same
+  # repository name under more than one owner.
+  github_trusted_owners = concat([var.github_owner], var.github_additional_owners)
+
   github_oidc_allowed_subjects = concat(
     [
       "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/main",
@@ -32,10 +36,11 @@ resource "aws_iam_openid_connect_provider" "github" {
     "sts.amazonaws.com"
   ]
 
-  # GitHub Actions OIDC thumbprint commonly used for AWS IAM OIDC provider.
-  # If AWS/provider retrieves a different current thumbprint, update this value.
+  # Both GitHub Actions OIDC thumbprints are declared because GitHub rotates
+  # its intermediate CA; keeping the pair avoids trust gaps during a rotation.
   thumbprint_list = [
-    "6938fd4d98bab03faadb97b34396831e3780aea1"
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1b511abead59c6ce207077c0bf0e0043b1382612"
   ]
 
   tags = merge(var.tags, {
@@ -46,9 +51,12 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 data "aws_iam_policy_document" "github_oidc_trust" {
   statement {
-    sid     = "AllowGitHubActionsAssumeRoleWithOIDC"
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    sid    = "AllowGitHubActionsAssumeRoleWithOIDC"
+    effect = "Allow"
+    actions = [
+      "sts:AssumeRoleWithWebIdentity",
+      "sts:TagSession"
+    ]
 
     principals {
       type        = "Federated"
@@ -62,9 +70,16 @@ data "aws_iam_policy_document" "github_oidc_trust" {
     }
 
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = local.github_oidc_allowed_subjects
+      # GitHub emits enterprise-style subjects (owner@<id>/repo@<id>) in this
+      # environment, so both plain and enterprise forms are trusted per owner.
+      values = flatten([
+        for owner in local.github_trusted_owners : [
+          "repo:${owner}/${var.github_repo}:*",
+          "repo:${owner}@*/${var.github_repo}@*:*"
+        ]
+      ])
     }
   }
 }

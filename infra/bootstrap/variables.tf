@@ -50,7 +50,13 @@ variable "github_owner" {
 variable "github_repo" {
   description = "GitHub repository name allowed to assume the deploy role"
   type        = string
-  default     = "tf4-cdo04-repo"
+  default     = "fintech-observability-engine"
+}
+
+variable "github_additional_owners" {
+  description = "Extra GitHub owners (e.g. a fork used to run the lab deploy) allowed to assume the deploy role for the same repository name"
+  type        = list(string)
+  default     = ["pho-veteran"]
 }
 
 variable "github_allowed_feature_branches" {

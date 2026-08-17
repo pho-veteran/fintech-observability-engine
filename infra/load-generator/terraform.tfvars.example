@@ -1,0 +1,11 @@
+# Non-secret values exported by the main platform after apply.
+target_api_base_url      = "https://<api-id>.execute-api.us-east-1.amazonaws.com"
+target_api_execution_arn = "arn:aws:execute-api:us-east-1:<account-id>:<api-id>"
+tenant_token_secret_arn  = "arn:aws:secretsmanager:us-east-1:<account-id>:secret:tf4-cdo04/sandbox/tenant-ingest-token-<suffix>"
+tenant_token_kms_key_arn = "arn:aws:kms:us-east-1:<account-id>:key/<key-id>"
+
+aws_region    = "us-east-1"
+aws_profile   = "default"
+environment   = "sandbox"
+instance_type = "t3.micro"
+tenant_id     = "demo-tenant-001"
