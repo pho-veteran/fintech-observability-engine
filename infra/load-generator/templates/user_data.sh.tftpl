@@ -19,9 +19,10 @@ printf '%s' '${signature_module_base64}' | base64 --decode >/opt/foresight-load-
 chmod 0644 /opt/foresight-load-generator/continuous_demo_ingest.js /opt/foresight-load-generator/signature.js
 chmod 0755 /opt/foresight-load-generator/run-k6.sh
 
-# Amazon Linux 2023 includes AWS CLI v2, Python 3, and SSM Agent. Install k6
-# from Grafana's official RPM repository without placing credentials in user data.
-dnf install -y ca-certificates curl
+# Amazon Linux 2023 includes AWS CLI v2, Python 3, SSM Agent, ca-certificates,
+# and curl via curl-minimal. Installing the full curl package conflicts with
+# curl-minimal and aborts this script, so only k6 is installed here, from
+# Grafana's official RPM repository and without credentials in user data.
 rpm --import https://dl.k6.io/key.gpg
 cat >/etc/yum.repos.d/k6.repo <<'REPO'
 [k6]
