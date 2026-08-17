@@ -46,8 +46,8 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 data "aws_iam_policy_document" "github_oidc_trust" {
   statement {
-    sid     = "AllowGitHubActionsAssumeRoleWithOIDC"
-    effect  = "Allow"
+    sid    = "AllowGitHubActionsAssumeRoleWithOIDC"
+    effect = "Allow"
     actions = [
       "sts:AssumeRoleWithWebIdentity",
       "sts:TagSession"
