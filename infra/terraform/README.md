@@ -106,4 +106,4 @@ terraform -chdir=infra/terraform destroy -var-file=lab.tfvars \
   -var="ai_engine_image_tag=<registry>/foresight-lens/ai_engine:<tag>"
 ```
 
-Keep the bootstrap state bucket. KMS key deletion remains pending for the configured AWS waiting period.
+For a normal platform destroy, keep the bootstrap state bucket. For an explicitly approved full nuke, including the versioned state bucket and GitHub OIDC role, follow [`../../docs/06_deployment_runbook.md`](../../docs/06_deployment_runbook.md). KMS key deletion remains pending for the configured AWS waiting period.

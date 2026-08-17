@@ -56,6 +56,10 @@ infra/
 - **Operational SNS topic** with email subscription for runtime alarm notifications.
 - **Budget alert SNS topic** with AWS Budget (50/80/100% thresholds at $200/month), billing alarm ($160 at 80%), cost breaker Lambda, and cost dashboard.
 
+## Authoritative deployment procedure
+
+Use [`../docs/06_deployment_runbook.md`](../docs/06_deployment_runbook.md) for the complete validated path: bootstrap, fork/OIDC setup, ECR-first deployment, CI apply, load generator, dashboard, evidence, troubleshooting, and full teardown. The shorter component notes below are reference material, not a substitute for that ordered runbook.
+
 ## Bootstrap
 
 ```bash
@@ -173,12 +177,17 @@ terraform output operational_alerts_topic_arn
 
 ## Verification commands
 
-Smoke-test the ingest path through API Gateway:
+Negative-check API Gateway authorization (an unsigned ingest request must return
+`403`):
 
 ```bash
 API_URL=$(terraform output -raw api_gateway_base_url)
-curl -s -o /dev/null -w "%{http_code}" "${API_URL}/v1/ingest" -H "X-Tenant-Id: demo-tenant-001"
+curl -s -o /dev/null -w "%{http_code}" "${API_URL}/v1/ingest" \
+  -H "X-Tenant-Id: demo-tenant-001"
 ```
+
+Use `scripts/post_apply_smoke.sh` for the signed success path and full runtime
+checks; the unsigned command above does not prove ingestion.
 
 Check ECS service health:
 

@@ -9,7 +9,8 @@
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_user" "tin" {
-  name = "tin"
+  count = var.create_tin_user ? 1 : 0
+  name  = "tin"
 
   tags = merge(var.tags, {
     Name    = "tin"
@@ -19,7 +20,8 @@ resource "aws_iam_user" "tin" {
 
 # 1. Attach CloudWatchLogsFullAccess to Tin
 resource "aws_iam_user_policy_attachment" "tin_cw_logs" {
-  user       = aws_iam_user.tin.name
+  count      = var.create_tin_user ? 1 : 0
+  user       = aws_iam_user.tin[0].name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
 }
 
@@ -66,7 +68,8 @@ data "aws_iam_policy_document" "tin_custom_policy" {
 }
 
 resource "aws_iam_user_policy" "tin_inline_policy" {
+  count  = var.create_tin_user ? 1 : 0
   name   = "tin-custom-permissions"
-  user   = aws_iam_user.tin.name
+  user   = aws_iam_user.tin[0].name
   policy = data.aws_iam_policy_document.tin_custom_policy.json
 }

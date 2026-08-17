@@ -92,6 +92,7 @@ See [`evidence/README.md`](evidence/README.md) and [`docs/07_test_eval_report.md
 - [`docs/03_security_design.md`](docs/03_security_design.md)
 - [`docs/04_deployment_design.md`](docs/04_deployment_design.md)
 - [`docs/05_cost_analysis.md`](docs/05_cost_analysis.md)
+- [`docs/06_deployment_runbook.md`](docs/06_deployment_runbook.md) — bootstrap-to-nuke disposable lab procedure
 - [`docs/07_test_eval_report.md`](docs/07_test_eval_report.md)
 - [`docs/08_adrs.md`](docs/08_adrs.md)
 
@@ -103,4 +104,4 @@ See [`evidence/README.md`](evidence/README.md) and [`docs/07_test_eval_report.md
 
 ## Internship report
 
-[`docs/internship_report_preflight.md`](docs/internship_report_preflight.md) maps report chapters to verified repository evidence, required screenshots and claims that must not be overstated.
+[`internship/internship_report_preflight.md`](internship/internship_report_preflight.md) maps report chapters to verified repository evidence, required screenshots and claims that must not be overstated.

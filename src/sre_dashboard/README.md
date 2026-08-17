@@ -7,9 +7,18 @@ Local-only FastAPI backend for CDO capacity-management visibility. Binds to `127
 Dashboard treats Terraform outputs like runtime config. Generate them yourself, then copy the JSON cache into this directory:
 
 ```bash
-cd tf4-cdo04-repo/infra/terraform
-terraform init -reconfigure
-terraform output -json > ../../src/sre_dashboard/terraform-output.json
+# Run from the repository root after initializing infra/terraform against the
+# deployed state. The raw Terraform JSON includes the sensitive demo token, so
+# remove it before writing the dashboard cache.
+terraform -chdir=infra/terraform output -json | python -c '
+import json, sys
+from pathlib import Path
+outputs = json.load(sys.stdin)
+outputs.pop("tenant_ingest_token", None)
+Path("src/sre_dashboard/terraform-output.json").write_text(
+    json.dumps(outputs, indent=2), encoding="utf-8"
+)
+'
 ```
 
 Expected local file:
