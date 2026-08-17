@@ -48,7 +48,10 @@ data "aws_iam_policy_document" "github_oidc_trust" {
   statement {
     sid     = "AllowGitHubActionsAssumeRoleWithOIDC"
     effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = [
+      "sts:AssumeRoleWithWebIdentity",
+      "sts:TagSession"
+    ]
 
     principals {
       type        = "Federated"
