@@ -111,13 +111,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Inspect GitHub OIDC claims
-        run: |
-          token="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)"
-          payload="$(printf '%s' "${token}" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null)"
-          printf '%s' "${payload}" | jq '{iss, aud, sub, repository, ref, environment}'
-
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
