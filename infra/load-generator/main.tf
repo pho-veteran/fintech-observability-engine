@@ -206,7 +206,9 @@ resource "aws_instance" "generator" {
   vpc_security_group_ids      = [aws_security_group.generator.id]
   iam_instance_profile        = aws_iam_instance_profile.generator.name
 
-  user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
+  # The rendered script embeds three base64 payloads and exceeds the 16 KiB
+  # user-data limit, so it ships gzipped; cloud-init decompresses it on boot.
+  user_data_base64 = base64gzip(templatefile("${path.module}/templates/user_data.sh.tftpl", {
     aws_region              = var.aws_region
     api_base_url            = trimsuffix(var.target_api_base_url, "/")
     tenant_id               = var.tenant_id
@@ -215,7 +217,7 @@ resource "aws_instance" "generator" {
     k6_script_base64        = base64encode(file("${path.root}/../../tests/k6/continuous_demo_ingest.js"))
     run_script_base64       = base64encode(file("${path.module}/files/run-k6.sh"))
     signature_module_base64 = base64encode(file("${path.module}/files/signature.js"))
-  })
+  }))
   user_data_replace_on_change          = true
   instance_initiated_shutdown_behavior = "stop"
 
