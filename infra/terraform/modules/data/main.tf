@@ -157,7 +157,9 @@ resource "aws_sqs_queue" "prediction" {
 }
 
 resource "aws_s3_bucket" "evidence" {
-  bucket        = "${var.project_name}-evidence-${var.environment}"
+  # S3 bucket names are globally unique, and the unsuffixed project name is
+  # already taken outside this account, so the account ID scopes it per account.
+  bucket        = "${var.project_name}-evidence-${var.environment}-${data.aws_caller_identity.current.account_id}"
   force_destroy = var.evidence_force_destroy
 }
 

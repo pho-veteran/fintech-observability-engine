@@ -231,7 +231,7 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
-    sid     = "AllowCreateAPIGatewayServiceLinkedRole"
+    sid     = "AllowCreateRequiredServiceLinkedRoles"
     effect  = "Allow"
     actions = ["iam:CreateServiceLinkedRole"]
 
@@ -240,8 +240,38 @@ data "aws_iam_policy_document" "github_deploy_policy" {
     condition {
       test     = "StringEquals"
       variable = "iam:AWSServiceName"
-      values   = ["ops.apigateway.amazonaws.com"]
+      values = [
+        "ops.apigateway.amazonaws.com",
+        # RegisterScalableTarget creates this role on the first ECS scalable target.
+        "ecs.application-autoscaling.amazonaws.com"
+      ]
     }
+  }
+
+  # Log groups are created untagged or tagged after the fact, so tag-conditioned
+  # statements cannot authorize follow-up calls such as PutRetentionPolicy.
+  statement {
+    sid    = "AllowManageProjectLogGroups"
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:DeleteLogGroup",
+      "logs:PutRetentionPolicy",
+      "logs:DeleteRetentionPolicy",
+      "logs:AssociateKmsKey",
+      "logs:DisassociateKmsKey",
+      "logs:TagResource",
+      "logs:UntagResource",
+      "logs:ListTagsForResource"
+    ]
+
+    resources = [
+      "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/ecs/*",
+      "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.project_name}-*",
+      "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/apigateway/${var.project_name}-*",
+      "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/vendedlogs/${var.project_name}-*"
+    ]
   }
 
   statement {
